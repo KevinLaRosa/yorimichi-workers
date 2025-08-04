@@ -171,6 +171,7 @@ class TokyoCheapoCrawler:
         
     def extract_tokyo_cheapo_data(self, html: str, url: str) -> Dict[str, Any]:
         """Extraction spécialisée pour Tokyo Cheapo"""
+        logger.info(f"📄 Step 1/5: Extracting data from HTML")
         soup = BeautifulSoup(html, 'html.parser')
         
         data = {
@@ -295,6 +296,7 @@ class TokyoCheapoCrawler:
         
     def classify_and_enrich(self, extracted_data: Dict[str, Any], url: str) -> Tuple[bool, str, Dict]:
         """Classification et enrichissement intelligent"""
+        logger.info(f"🤖 Step 2/5: Classifying POI with GPT-3.5")
         try:
             # Prompt optimized for Tokyo Cheapo (in English)
             neighborhoods_list = ', '.join(self.neighborhoods.keys())
@@ -340,9 +342,11 @@ Contenu (extrait): {extracted_data['content'][:1500]}
             
             result = json.loads(response.choices[0].message.content)
             self.total_cost_estimate += 0.003
+            logger.debug(f"📊 Classification result: {result}")
             
             # Enrichir avec les données extraites
             if result.get('is_poi', False):
+                logger.info(f"✅ Confirmed as POI: {result.get('category')} in {result.get('neighborhood', 'Unknown')}")
                 enriched = {
                     'is_poi': True,
                     'category': result.get('category', 'AUTRE'),
@@ -424,9 +428,11 @@ Contenu (extrait): {extracted_data['content'][:1500]}
     def geocode_address(self, address: str) -> Dict[str, Optional[float]]:
         """Geocode une adresse pour obtenir lat/lng (comme le backoffice)"""
         if not address or address == 'Tokyo':
+            logger.debug("⏭️ Geocoding skipped: empty or generic address")
             return {'lat': None, 'lng': None}
             
         try:
+            logger.info(f"🌍 Geocoding address: {address}")
             # Utiliser Nominatim (OpenStreetMap) - Gratuit, pas de clé API
             # Respecter les limites : 1 requête/seconde
             time.sleep(1)  # Rate limiting
@@ -442,6 +448,7 @@ Contenu (extrait): {extracted_data['content'][:1500]}
                 'User-Agent': 'Yorimichi Tourism Crawler/1.0'  # Required by Nominatim
             }
             
+            logger.debug(f"📡 Calling Nominatim API with query: {params['q']}")
             response = requests.get(geocode_url, params=params, headers=headers, timeout=10)
             data = response.json()
             
@@ -449,13 +456,18 @@ Contenu (extrait): {extracted_data['content'][:1500]}
                 result = data[0]
                 lat = float(result['lat'])
                 lng = float(result['lon'])
-                logger.debug(f"✓ Geocoded: {address} → {lat}, {lng}")
+                logger.info(f"✅ Geocoding successful: {address} → {lat}, {lng}")
+                logger.debug(f"📍 Full result: {result.get('display_name', 'N/A')}")
                 return {'lat': lat, 'lng': lng}
             else:
-                logger.warning(f"⚠️ Pas de résultat geocoding pour: {address}")
+                logger.warning(f"⚠️ No geocoding results for: {address}")
                 
+        except requests.exceptions.Timeout:
+            logger.error(f"❌ Geocoding timeout for address: {address}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Geocoding network error: {str(e)}")
         except Exception as e:
-            logger.warning(f"Erreur geocoding: {str(e)}")
+            logger.error(f"❌ Geocoding unexpected error: {str(e)}")
             
         return {'lat': None, 'lng': None}
     
@@ -486,6 +498,7 @@ Contenu (extrait): {extracted_data['content'][:1500]}
         
     def generate_unique_description(self, data: Dict[str, Any], category: str, enriched: Dict) -> str:
         """Génère une description unique et captivante avec GPT-4"""
+        logger.info(f"✍️ Step 3/5: Generating unique description with GPT-4")
         try:
             # Adapt style to place type (in English)
             style_map = {
@@ -548,6 +561,8 @@ Contexte du site:
             
             description = response.choices[0].message.content.strip()
             self.total_cost_estimate += 0.04
+            logger.info(f"✅ Description generated: {len(description)} characters")
+            logger.debug(f"📝 Preview: {description[:100]}...")
             
             return description
             
@@ -583,7 +598,9 @@ Contexte du site:
     
     def save_enhanced_poi(self, data: Dict, description: str, category: str, enriched: Dict, url: str):
         """Sauvegarde le POI avec toutes les infos Tokyo Cheapo"""
+        logger.info(f"💾 Step 4/5: Saving POI to database")
         try:
+            logger.debug("🔤 Generating embedding...")
             # Générer l'embedding
             embedding_response = self.openai_client.embeddings.create(
                 model="text-embedding-ada-002",
@@ -593,6 +610,7 @@ Contexte du site:
             self.total_cost_estimate += 0.0004
             
             # Vérifier les doublons
+            logger.debug("🔍 Checking for duplicates...")
             dup_check = self.supabase.rpc('match_locations', {
                 'query_embedding': embedding,
                 'match_threshold': 0.92,
@@ -600,7 +618,7 @@ Contexte du site:
             }).execute()
             
             if len(dup_check.data) > 0:
-                logger.info(f"⚠️ Doublon détecté: {data['title']}")
+                logger.warning(f"⚠️ Duplicate detected: {data['title']} (similarity: {dup_check.data[0].get('similarity', 'N/A')})")
                 return 'skipped_duplicate'
                 
             # Get or create neighborhood_id from enriched data
@@ -626,6 +644,7 @@ Contexte du site:
                         logger.warning(f"⚠️ Impossible de créer le neighborhood '{enriched['neighborhood']}': {str(e)}")
             
             # Préparer les données pour Supabase
+            logger.debug(f"📦 Preparing data for insertion...")
             location_data = {
                 'name': data['title'],
                 'name_jp': None,  # À extraire si présent dans le contenu
@@ -670,6 +689,7 @@ Contexte du site:
             }
             
             # Insérer dans la base
+            logger.debug("📤 Inserting location into database...")
             location_result = self.supabase.table('locations').insert(location_data).execute()
             
             if not location_result.data or len(location_result.data) == 0:
@@ -679,6 +699,7 @@ Contexte du site:
             location_id = location_result.data[0]['id']
             
             # Créer les associations de tags
+            logger.info(f"🏷️ Step 5/5: Creating tag associations")
             tags_to_create = []
             
             # 1. Tag de catégorie principale (avec mapping)
@@ -743,13 +764,18 @@ Contexte du site:
             # Insérer tous les tags en une fois (avec gestion d'erreur souple)
             if tags_to_create:
                 try:
+                    logger.debug(f"📤 Inserting {len(tags_to_create)} tag associations...")
                     self.supabase.table('location_tags').insert(tags_to_create).execute()
-                    logger.info(f"✓ {len(tags_to_create)} tags associés")
+                    logger.info(f"✅ {len(tags_to_create)} tags successfully associated")
                 except Exception as e:
                     logger.warning(f"⚠️ Erreur lors de l'association des tags: {str(e)}")
                     # On continue quand même - on pourra retraiter plus tard
             
-            logger.info(f"✅ POI créé: {data['title']} ({category}) - {enriched.get('neighborhood', 'Tokyo')} - {len(tags_to_create)} tags")
+            logger.info(f"🎉 POI successfully created: {data['title']}")
+            logger.info(f"   📍 Category: {category}")
+            logger.info(f"   🏘️ Neighborhood: {enriched.get('neighborhood', 'Tokyo')}")
+            logger.info(f"   🏷️ Tags: {len(tags_to_create)}")
+            logger.info(f"   📏 Coordinates: {location_data.get('latitude', 'N/A')}, {location_data.get('longitude', 'N/A')}")
             return 'success'
             
         except Exception as e:
@@ -759,7 +785,9 @@ Contexte du site:
     def process_url(self, url: str) -> str:
         """Traite une URL complète"""
         try:
-            logger.info(f"🔍 Analyse de: {url}")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"🔍 Processing URL: {url}")
+            logger.info(f"{'='*60}")
             
             # 1. Télécharger la page
             response = requests.get('https://app.scrapingbee.com/api/v1/', params={
@@ -894,15 +922,20 @@ Contexte du site:
                     self.mark_url_processed(url, status)
                     
                     # Progress
-                    if idx % 10 == 0:
+                    if idx % 5 == 0:  # More frequent updates
                         elapsed = time.time() - start_time
-                        rate = self.processed_count / (elapsed / 60)
+                        rate = self.processed_count / (elapsed / 60) if elapsed > 0 else 0
+                        remaining = len(to_process) - idx
+                        eta_minutes = remaining / rate if rate > 0 else 0
                         logger.info(f"""
-⏱️ Progression: {idx}/{len(to_process)}
-✅ POIs créés: {self.success_count}
-⏭️ Ignorés: {self.skip_count}
-💰 Coût actuel: ${self.total_cost_estimate:.2f}
-📈 Vitesse: {rate:.1f} URLs/min
+📡 PROGRESS UPDATE:
+⏱️  Progress: {idx}/{len(to_process)} ({idx/len(to_process)*100:.1f}%)
+✅  POIs created: {self.success_count}
+⏭️  Skipped: {self.skip_count}
+❌  Errors: {self.error_count}
+💰  Cost so far: ${self.total_cost_estimate:.2f}
+📈  Speed: {rate:.1f} URLs/min
+⏰  ETA: {eta_minutes:.1f} minutes
                         """)
                         
                     time.sleep(1.5)  # Respect rate limits
