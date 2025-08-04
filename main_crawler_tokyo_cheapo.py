@@ -457,11 +457,27 @@ Contexte du site:
                 logger.info(f"⚠️ Doublon détecté: {data['title']}")
                 return 'skipped_duplicate'
                 
-            # Get neighborhood_id from enriched data
+            # Get or create neighborhood_id from enriched data
             neighborhood_id = None
-            if enriched.get('neighborhood') and enriched['neighborhood'] in self.neighborhoods:
-                neighborhood_id = self.neighborhoods[enriched['neighborhood']]
-                logger.debug(f"✓ Neighborhood trouvé: {enriched['neighborhood']}")
+            if enriched.get('neighborhood'):
+                if enriched['neighborhood'] in self.neighborhoods:
+                    neighborhood_id = self.neighborhoods[enriched['neighborhood']]
+                    logger.debug(f"✓ Neighborhood trouvé: {enriched['neighborhood']}")
+                else:
+                    # Create new neighborhood if it doesn't exist
+                    try:
+                        new_neighborhood = self.supabase.table('neighborhoods').insert({
+                            'name': enriched['neighborhood'],
+                            'is_active': True
+                        }).execute()
+                        
+                        if new_neighborhood.data and len(new_neighborhood.data) > 0:
+                            neighborhood_id = new_neighborhood.data[0]['id']
+                            # Add to local cache
+                            self.neighborhoods[enriched['neighborhood']] = neighborhood_id
+                            logger.info(f"✓ Nouveau neighborhood créé: {enriched['neighborhood']}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Impossible de créer le neighborhood '{enriched['neighborhood']}': {str(e)}")
             
             # Préparer les données pour Supabase
             location_data = {
