@@ -10,7 +10,7 @@ import time
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 import traceback
 
@@ -445,12 +445,12 @@ Contexte du site:
                 'summary': description[:100] + "..." if len(description) > 100 else description,
                 # 'category': category,  # On utilisera les tags à la place
                 # 'subcategory': enriched.get('subcategory'),
-                'neighborhood': enriched.get('neighborhood'),
+                # 'neighborhood': enriched.get('neighborhood'),  # Pas de colonne neighborhood
                 'address': data['address'],
                 'is_active': False,
                 'source_url': url,
                 'source_name': self.site_name,
-                'source_scraped_at': datetime.utcnow().isoformat(),
+                'source_scraped_at': datetime.now(timezone.utc).isoformat(),
                 'embedding': embedding,
                 
                 # Features enrichies spéciales Tokyo Cheapo
@@ -467,7 +467,7 @@ Contexte du site:
                 
                 'metadata': {
                     'crawler_version': 'Tokyo Cheapo Specialist v1',
-                    'extraction_date': datetime.utcnow().isoformat()
+                    'extraction_date': datetime.now(timezone.utc).isoformat()
                 }
             }
             
