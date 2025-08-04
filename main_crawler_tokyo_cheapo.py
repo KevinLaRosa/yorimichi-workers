@@ -37,6 +37,23 @@ logger = logging.getLogger('TokyoCheapoCrawler')
 class TokyoCheapoCrawler:
     """Crawler optimisé spécifiquement pour Tokyo Cheapo"""
     
+    # Mapping des catégories Tokyo Cheapo vers les catégories Yorimichi
+    CATEGORY_MAPPING = {
+        'TEMPLE': 'Temple',
+        'SHRINE': 'Sanctuaire',
+        'MUSEUM': 'Musée',
+        'PARK': 'Parc',
+        'RESTAURANT': 'Restaurant',
+        'CAFE': 'Café',
+        'BAR': 'Bar',
+        'HOTEL': 'Hôtel',
+        'MARKET': 'Marché',
+        'SHOP': 'Shopping',
+        'ATTRACTION': 'Attraction',
+        'ONSEN': 'Onsen',
+        'AUTRE': 'Autre'
+    }
+    
     # Configuration des sitemaps par ordre de valeur
     TOKYO_CHEAPO_SITEMAPS = {
         'attractions': [
@@ -359,6 +376,29 @@ Contexte du site:
             logger.error(f"Erreur génération: {str(e)}")
             raise
             
+    def get_or_create_tag(self, tag_name: str, tag_type: str) -> Optional[str]:
+        """Récupère ou crée un tag et retourne son ID"""
+        try:
+            # Chercher si le tag existe déjà
+            result = self.supabase.table('tags').select('id').eq('name', tag_name).eq('tag_type', tag_type).execute()
+            
+            if result.data and len(result.data) > 0:
+                return result.data[0]['id']
+            
+            # Créer le tag s'il n'existe pas
+            new_tag = self.supabase.table('tags').insert({
+                'name': tag_name,
+                'tag_type': tag_type,
+                'slug': tag_name.lower().replace(' ', '-')
+            }).execute()
+            
+            if new_tag.data and len(new_tag.data) > 0:
+                return new_tag.data[0]['id']
+                
+        except Exception as e:
+            logger.error(f"Erreur gestion tag {tag_name}: {str(e)}")
+        return None
+    
     def save_enhanced_poi(self, data: Dict, description: str, category: str, enriched: Dict, url: str):
         """Sauvegarde le POI avec toutes les infos Tokyo Cheapo"""
         try:
@@ -416,9 +456,58 @@ Contexte du site:
             }
             
             # Insérer dans la base
-            self.supabase.table('locations').insert(location_data).execute()
+            location_result = self.supabase.table('locations').insert(location_data).execute()
             
-            logger.info(f"✅ POI créé: {data['title']} ({category}) - {enriched.get('neighborhood', 'Tokyo')}")
+            if not location_result.data or len(location_result.data) == 0:
+                logger.error("Erreur: Impossible de créer la location")
+                return 'failed'
+                
+            location_id = location_result.data[0]['id']
+            
+            # Créer les associations de tags
+            tags_to_create = []
+            
+            # 1. Tag de catégorie principale (avec mapping)
+            mapped_category = self.CATEGORY_MAPPING.get(category, category)
+            category_tag_id = self.get_or_create_tag(mapped_category, 'category')
+            if category_tag_id:
+                tags_to_create.append({
+                    'location_id': location_id,
+                    'tag_id': category_tag_id
+                })
+            
+            # 2. Tags de quartier
+            if enriched.get('neighborhood'):
+                neighborhood_tag_id = self.get_or_create_tag(enriched['neighborhood'], 'feature')
+                if neighborhood_tag_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': neighborhood_tag_id
+                    })
+            
+            # 3. Tags de type de visiteur
+            for visitor_type in enriched.get('visitor_types', []):
+                visitor_tag_id = self.get_or_create_tag(visitor_type, 'ambiance')
+                if visitor_tag_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': visitor_tag_id
+                    })
+            
+            # 4. Tag de prix si gratuit
+            if data.get('price') and 'free' in data['price'].lower():
+                free_tag_id = self.get_or_create_tag('Gratuit', 'price_range')
+                if free_tag_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': free_tag_id
+                    })
+            
+            # Insérer tous les tags en une fois
+            if tags_to_create:
+                self.supabase.table('location_tags').insert(tags_to_create).execute()
+            
+            logger.info(f"✅ POI créé: {data['title']} ({category}) - {enriched.get('neighborhood', 'Tokyo')} - {len(tags_to_create)} tags")
             return 'success'
             
         except Exception as e:
