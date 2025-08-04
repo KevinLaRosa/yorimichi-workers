@@ -1,0 +1,17 @@
+# Requirements for Yorimichi Intelligent Crawler V2
+
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+lxml>=4.9.3
+python-dotenv>=1.0.0
+
+# Supabase client
+supabase>=2.3.0
+
+# OpenAI client
+openai>=1.12.0
+
+# Optional but recommended for better performance
+aiohttp>=3.9.0
+asyncio>=3.4.3
