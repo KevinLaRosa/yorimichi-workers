@@ -49,8 +49,8 @@ class YorimichiIntelligentCrawler:
         
         # Initialisation des clients
         self.supabase = create_client(
-            os.getenv('SUPABASE_URL'),
-            os.getenv('SUPABASE_SERVICE_KEY')
+            os.getenv('NEXT_PUBLIC_SUPABASE_URL'),
+            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
         )
         
         # Configuration OpenAI
@@ -76,8 +76,8 @@ class YorimichiIntelligentCrawler:
     def validate_environment(self):
         """Valide que toutes les variables d'environnement requises sont présentes"""
         required_vars = [
-            'SUPABASE_URL',
-            'SUPABASE_SERVICE_KEY',
+            'NEXT_PUBLIC_SUPABASE_URL',
+            'SUPABASE_SERVICE_ROLE_KEY',
             'OPENAI_API_KEY',
             'SCRAPINGBEE_API_KEY'
         ]
