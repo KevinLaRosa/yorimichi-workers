@@ -38,7 +38,11 @@ class YorimichiIntelligentCrawler:
     
     def __init__(self):
         """Initialisation du crawler avec chargement des configurations"""
-        load_dotenv()
+        # Chercher le .env dans le dossier env/ en priorité, sinon à la racine
+        if os.path.exists('env/.env'):
+            load_dotenv('env/.env')
+        else:
+            load_dotenv()
         
         # Validation des variables d'environnement
         self.validate_environment()
