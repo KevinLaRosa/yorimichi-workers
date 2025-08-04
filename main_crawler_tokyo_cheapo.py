@@ -591,7 +591,7 @@ Contexte du site:
 ❌ Erreurs: {self.error_count}
 ⏱️ Durée: {duration:.1f} minutes
 💰 Coût total: ${self.total_cost_estimate:.2f}
-💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI
+💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI" if self.success_count > 0 else "N/A
             """)
             
         except Exception as e:
