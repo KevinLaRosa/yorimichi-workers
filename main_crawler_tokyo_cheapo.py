@@ -125,7 +125,6 @@ class TokyoCheapoCrawler:
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
         self.scrapingbee_api_key = os.getenv('SCRAPINGBEE_API_KEY')
-        self.unsplash_key = os.getenv('UNSPLASH_ACCESS_KEY', '')  # Optional for free images
         
         # Configuration
         self.site_name = "Tokyo Cheapo"
@@ -365,45 +364,60 @@ Contenu (extrait): {extracted_data['content'][:1500]}
             logger.error(f"Erreur classification: {str(e)}")
             return False, 'ERROR', {}
             
-    def get_free_image(self, place_name: str, category: str) -> Optional[str]:
-        """Récupère une image gratuite depuis Unsplash (5000/heure gratuit)"""
-        if not self.unsplash_key:
-            return None
-            
+    def get_wikimedia_image(self, place_name: str, category: str) -> Optional[str]:
+        """Récupère une image gratuite depuis Wikimedia Commons (100% légal)"""
         try:
-            # Construire la requête de recherche intelligente
-            search_queries = [
-                f"{place_name} Tokyo",  # Nom exact
-                f"{category} Tokyo Japan",  # Catégorie générique
-                f"Tokyo {category.lower()}",  # Alternative
-            ]
+            # API Wikimedia Commons
+            search_url = "https://commons.wikimedia.org/w/api.php"
             
-            headers = {
-                'Authorization': f'Client-ID {self.unsplash_key}'
+            # 1. Rechercher l'image
+            search_params = {
+                'action': 'query',
+                'format': 'json',
+                'list': 'search',
+                'srsearch': f'{place_name} Tokyo',
+                'srnamespace': 6,  # File namespace
+                'srlimit': 3  # Top 3 résultats
             }
             
-            for query in search_queries:
-                response = requests.get(
-                    'https://api.unsplash.com/search/photos',
-                    headers=headers,
-                    params={
-                        'query': query,
-                        'orientation': 'landscape',
-                        'per_page': 1
-                    },
-                    timeout=5
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data['results']:
-                        # Retourner l'URL de taille moyenne (parfait pour web)
-                        image_url = data['results'][0]['urls']['regular']
-                        logger.debug(f"✓ Image Unsplash trouvée pour: {query}")
-                        return image_url
-                        
+            response = requests.get(search_url, params=search_params, timeout=5)
+            data = response.json()
+            
+            if not data.get('query', {}).get('search'):
+                # Essayer avec des termes plus génériques
+                search_params['srsearch'] = f'{category} Tokyo Japan'
+                response = requests.get(search_url, params=search_params, timeout=5)
+                data = response.json()
+            
+            if data.get('query', {}).get('search'):
+                # 2. Obtenir l'URL de l'image
+                for result in data['query']['search']:
+                    file_title = result['title']
+                    
+                    image_params = {
+                        'action': 'query',
+                        'format': 'json',
+                        'titles': file_title,
+                        'prop': 'imageinfo',
+                        'iiprop': 'url|mime',
+                        'iiurlwidth': 800  # Largeur optimale pour web
+                    }
+                    
+                    img_response = requests.get(search_url, params=image_params, timeout=5)
+                    img_data = img_response.json()
+                    
+                    pages = img_data.get('query', {}).get('pages', {})
+                    for page in pages.values():
+                        if 'imageinfo' in page:
+                            imageinfo = page['imageinfo'][0]
+                            # Vérifier que c'est une image (pas un PDF ou autre)
+                            if imageinfo.get('mime', '').startswith('image/'):
+                                image_url = imageinfo.get('thumburl') or imageinfo.get('url')
+                                logger.debug(f"✓ Image Wikimedia trouvée: {file_title}")
+                                return image_url
+                                
         except Exception as e:
-            logger.warning(f"Erreur Unsplash: {str(e)}")
+            logger.warning(f"Erreur Wikimedia: {str(e)}")
             
         return None
     
@@ -588,7 +602,7 @@ Contexte du site:
                 'source_name': self.site_name,
                 'source_scraped_at': datetime.now(timezone.utc).isoformat(),
                 'embedding': embedding,
-                'image_url': self.get_free_image(data['title'], category),  # Free image from Unsplash
+                'image_url': None,  # Pas d'image pour le moment
                 
                 # Features enrichies spéciales Tokyo Cheapo
                 'features': {
