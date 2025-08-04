@@ -421,6 +421,44 @@ Contenu (extrait): {extracted_data['content'][:1500]}
             
         return None
     
+    def geocode_address(self, address: str) -> Dict[str, Optional[float]]:
+        """Geocode une adresse pour obtenir lat/lng (comme le backoffice)"""
+        if not address or address == 'Tokyo':
+            return {'lat': None, 'lng': None}
+            
+        try:
+            # Utiliser Nominatim (OpenStreetMap) - Gratuit, pas de clé API
+            # Respecter les limites : 1 requête/seconde
+            time.sleep(1)  # Rate limiting
+            
+            geocode_url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                'q': f"{address}, Tokyo, Japan",
+                'format': 'json',
+                'limit': 1,
+                'accept-language': 'en'
+            }
+            headers = {
+                'User-Agent': 'Yorimichi Tourism Crawler/1.0'  # Required by Nominatim
+            }
+            
+            response = requests.get(geocode_url, params=params, headers=headers, timeout=10)
+            data = response.json()
+            
+            if data and len(data) > 0:
+                result = data[0]
+                lat = float(result['lat'])
+                lng = float(result['lon'])
+                logger.debug(f"✓ Geocoded: {address} → {lat}, {lng}")
+                return {'lat': lat, 'lng': lng}
+            else:
+                logger.warning(f"⚠️ Pas de résultat geocoding pour: {address}")
+                
+        except Exception as e:
+            logger.warning(f"Erreur geocoding: {str(e)}")
+            
+        return {'lat': None, 'lng': None}
+    
     def extract_neighborhood_from_address(self, address: str) -> Optional[str]:
         """Extrait le quartier depuis l'adresse"""
         if not address:
@@ -595,8 +633,8 @@ Contexte du site:
                 'summary': description[:100] + "..." if len(description) > 100 else description,
                 'neighborhood_id': neighborhood_id,  # Use the proper foreign key
                 'address': data['address'],
-                'latitude': data.get('latitude'),
-                'longitude': data.get('longitude'),
+                'latitude': data.get('latitude') or self.geocode_address(data['address']).get('lat'),
+                'longitude': data.get('longitude') or self.geocode_address(data['address']).get('lng'),
                 'is_active': False,
                 'source_url': url,
                 'source_name': self.site_name,
