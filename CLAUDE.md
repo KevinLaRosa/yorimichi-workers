@@ -1,13 +1,14 @@
 # CLAUDE.md - Documentation des changements par Claude
 
-## 📅 4 Août 2025 - Migration ScrapingBee → ScraperAPI
+## 📅 4 Août 2025 - Support Multi-Service (ScrapingBee + ScraperAPI)
 
 ### 🔄 Changements effectués
 
-1. **Migration du service de scraping**
-   - Remplacé ScrapingBee par ScraperAPI dans `main_crawler_tokyo_cheapo.py`
+1. **Support multi-service de scraping**
+   - Ajout du choix entre ScrapingBee et ScraperAPI dans `main_crawler_tokyo_cheapo.py`
+   - ScrapingBee reste le service par défaut
+   - Configuration via `SCRAPING_SERVICE` env var ou `--service` CLI
    - ScraperAPI offre 100k requêtes/mois vs 50k pour le même prix
-   - Clé API intégrée : `941de144518cb736f43c2b01632de99a`
 
 2. **Skip automatique des URLs déjà scrapées**
    - Charge les 307 URLs Tokyo Cheapo existantes au démarrage
@@ -35,19 +36,26 @@
 ### 🚀 Utilisation
 
 ```bash
-# Lancer normalement
+# ScrapingBee (par défaut)
 python main_crawler_tokyo_cheapo.py
 
+# ScraperAPI
+python main_crawler_tokyo_cheapo.py --service scraperapi
+
+# Avec variable d'environnement
+SCRAPING_SERVICE=scraperapi python main_crawler_tokyo_cheapo.py
+
 # Limiter aux crédits gratuits
-python main_crawler_tokyo_cheapo.py --limit 271
+python main_crawler_tokyo_cheapo.py --service scraperapi --limit 271
 
 # Mode test
-python main_crawler_tokyo_cheapo.py --test
+python main_crawler_tokyo_cheapo.py --service scrapingbee --test
 ```
 
 ### 📝 Notes techniques
 
-- La validation d'environnement n'exige plus `SCRAPINGBEE_API_KEY`
+- La validation d'environnement exige `SCRAPINGBEE_API_KEY` seulement si ScrapingBee est utilisé
+- ScrapingBee reste le service par défaut pour la compatibilité
 - Les logs afficheront "⏭️ URL déjà scrapée" pour chaque skip
 - Compatible avec toutes les options existantes du crawler
 

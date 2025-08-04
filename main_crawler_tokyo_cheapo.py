@@ -124,7 +124,20 @@ class TokyoCheapoCrawler:
         openai.api_key = os.getenv('OPENAI_API_KEY')
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
-        # ScraperAPI est maintenant utilisé avec la clé directement dans le code
+        # Configuration du service de scraping
+        self.scraping_service = os.getenv('SCRAPING_SERVICE', 'scrapingbee').lower()
+        
+        if self.scraping_service == 'scrapingbee':
+            self.scrapingbee_api_key = os.getenv('SCRAPINGBEE_API_KEY')
+            if not self.scrapingbee_api_key:
+                logger.warning("⚠️ SCRAPINGBEE_API_KEY non définie")
+        elif self.scraping_service == 'scraperapi':
+            self.scraperapi_key = os.getenv('SCRAPERAPI_KEY', '941de144518cb736f43c2b01632de99a')
+        else:
+            logger.warning(f"⚠️ Service de scraping inconnu: {self.scraping_service}")
+            self.scraping_service = 'scrapingbee'  # Fallback
+        
+        logger.info(f"📦 Service de scraping: {self.scraping_service}")
         
         # Configuration
         self.site_name = "Tokyo Cheapo"
@@ -160,8 +173,13 @@ class TokyoCheapoCrawler:
             'NEXT_PUBLIC_SUPABASE_URL',
             'SUPABASE_SERVICE_ROLE_KEY',
             'OPENAI_API_KEY'
-            # SCRAPINGBEE_API_KEY n'est plus nécessaire - on utilise ScraperAPI
         ]
+        
+        # Ajouter la clé API du service de scraping choisi
+        scraping_service = os.getenv('SCRAPING_SERVICE', 'scrapingbee').lower()
+        if scraping_service == 'scrapingbee':
+            required_vars.append('SCRAPINGBEE_API_KEY')
+        # ScraperAPI a une clé par défaut, donc pas obligatoire
         
         missing_vars = [var for var in required_vars if not os.getenv(var)]
         
@@ -814,16 +832,28 @@ Contexte du site:
             logger.info(f"🔍 Processing URL: {url}")
             logger.info(f"{'='*60}")
             
-            # 1. Télécharger la page
-            # Utiliser ScraperAPI au lieu de ScrapingBee
-            response = requests.get('http://api.scraperapi.com', params={
-                'api_key': '941de144518cb736f43c2b01632de99a',  # ScraperAPI key
-                'url': url,
-                'render': 'true',  # 'render' pas 'render_js' pour ScraperAPI
-                'premium': 'true',  # 'premium' pas 'premium_proxy' pour ScraperAPI
-                'country_code': 'jp',
-                'wait_for_selector': '.item-card'
-            }, timeout=60)
+            # 1. Télécharger la page selon le service configuré
+            if self.scraping_service == 'scraperapi':
+                # Utiliser ScraperAPI
+                response = requests.get('http://api.scraperapi.com', params={
+                    'api_key': self.scraperapi_key,
+                    'url': url,
+                    'render': 'true',  # 'render' pas 'render_js' pour ScraperAPI
+                    'premium': 'true',  # 'premium' pas 'premium_proxy' pour ScraperAPI
+                    'country_code': 'jp',
+                    'wait_for_selector': '.item-card'
+                }, timeout=60)
+            else:
+                # Utiliser ScrapingBee (par défaut)
+                response = requests.get('https://app.scrapingbee.com/api/v1/', params={
+                    'api_key': self.scrapingbee_api_key,
+                    'url': url,
+                    'render_js': 'true',
+                    'premium_proxy': 'true',
+                    'country_code': 'jp',
+                    'wait': '5',
+                    'wait_for': '.item-card'
+                }, timeout=60)
             response.raise_for_status()
             
             # 2. Extraire les données Tokyo Cheapo
@@ -998,8 +1028,14 @@ def main():
     parser.add_argument('--target', choices=['attractions', 'restaurants', 'accommodation', 'all'], 
                        default='attractions', help='Type de contenu à crawler')
     parser.add_argument('--limit', type=int, help='Limite du nombre d\'URLs (pour tests)')
+    parser.add_argument('--service', choices=['scrapingbee', 'scraperapi'], 
+                       help='Service de scraping à utiliser (par défaut: SCRAPING_SERVICE env var ou scrapingbee)')
     
     args = parser.parse_args()
+    
+    # Si le service est spécifié en CLI, l'utiliser
+    if args.service:
+        os.environ['SCRAPING_SERVICE'] = args.service
     
     crawler = TokyoCheapoCrawler()
     crawler.run(target=args.target, limit=args.limit)
