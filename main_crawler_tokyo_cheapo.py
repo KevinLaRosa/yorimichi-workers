@@ -54,7 +54,7 @@ class TokyoCheapoCrawler:
         'AUTRE': 'Other'  # Will create if needed
     }
     
-    # Mapping pour les types de visiteurs
+    # Mapping pour les types de visiteurs (enrichi pour agent touristique)
     VISITOR_TYPE_MAPPING = {
         'budget': 'Budget',  # Use as price_range
         'culture': 'Culture',  # Use as feature
@@ -68,6 +68,20 @@ class TokyoCheapoCrawler:
         'entertainment': 'Entertainment',  # Already exists as feature
         'nightlife': 'Nightlife',  # Already exists as feature
         'shopping': 'Shopping',  # Already exists as feature
+        # New for tourism agent
+        'romantic': 'Romantic',  # For couples
+        'solo': 'Solo Traveler',  # Solo travelers
+        'business': 'Business Traveler',  # Business trips
+        'photography': 'Photography Spot',  # Photo opportunities
+        'foodie': 'Foodie Paradise',  # Food enthusiasts
+        'adventure': 'Adventure',  # Adventure seekers
+        'relaxation': 'Relaxation',  # Peaceful spots
+        'rainy_day': 'Rainy Day Activity',  # Indoor activities
+        'instagram': 'Instagram Worthy',  # Social media spots
+        'hidden_gem': 'Hidden Gem',  # Off the beaten path
+        'must_see': 'Must See',  # Essential Tokyo
+        'otaku': 'Otaku Culture',  # Anime/manga fans
+        'wellness': 'Wellness',  # Health & wellness
     }
     
     # Configuration des sitemaps par ordre de valeur
@@ -168,7 +182,9 @@ class TokyoCheapoCrawler:
             'nearest_stations': [],
             'tags': [],
             'meta_description': '',
-            'images': []
+            'images': [],
+            'latitude': None,
+            'longitude': None
         }
         
         # Titre
@@ -251,6 +267,30 @@ class TokyoCheapoCrawler:
         images = soup.find_all('img', limit=5)
         data['images'] = [img.get('src', '') for img in images if img.get('src') and 'logo' not in img.get('src', '').lower()]
         
+        # Coordonnées GPS (si disponibles)
+        # Chercher dans la carte Google Maps iframe ou scripts
+        map_iframe = soup.find('iframe', {'src': lambda x: x and 'maps' in x})
+        if map_iframe:
+            src = map_iframe.get('src', '')
+            # Extraire lat/lng de l'URL Google Maps
+            lat_match = re.search(r'!3d([-\d.]+)', src)
+            lng_match = re.search(r'!4d([-\d.]+)', src)
+            if lat_match and lng_match:
+                data['latitude'] = float(lat_match.group(1))
+                data['longitude'] = float(lng_match.group(1))
+        
+        # Alternative: chercher dans les scripts JS
+        if not data['latitude']:
+            scripts = soup.find_all('script')
+            for script in scripts:
+                if script.string:
+                    # Pattern pour Tokyo Cheapo maps
+                    coords_match = re.search(r'lat["\']?\s*:\s*([-\d.]+).*?lng["\']?\s*:\s*([-\d.]+)', script.string, re.DOTALL)
+                    if coords_match:
+                        data['latitude'] = float(coords_match.group(1))
+                        data['longitude'] = float(coords_match.group(2))
+                        break
+        
         return data
         
     def classify_and_enrich(self, extracted_data: Dict[str, Any], url: str) -> Tuple[bool, str, Dict]:
@@ -270,7 +310,11 @@ Reply in JSON: {{
   "category": "TEMPLE|SHRINE|MUSEUM|PARK|RESTAURANT|CAFE|BAR|HOTEL|MARKET|SHOP|ATTRACTION|ONSEN|OTHER",
   "subcategory": "more specific if possible",
   "neighborhood": "exact name from the list above, or null if not found",
-  "type_visitor": ["budget", "culture", "food", "family", etc.]
+  "type_visitor": ["budget", "culture", "food", "family", "romantic", "solo", "photography", "rainy_day", "must_see", etc.],
+  "best_time": "morning|afternoon|evening|night|anytime",
+  "time_needed": "30min|1h|2h|3h|half-day|full-day",
+  "reservation": "required|recommended|not-needed|unknown",
+  "english_friendly": true/false
 }}"""
 
             context = f"""
@@ -372,7 +416,14 @@ IMPORTANT:
 - Include PRACTICAL details subtly woven into the narrative
 - Adapt the tone for budget-conscious travelers (Tokyo Cheapo style)
 - DO NOT COPY any phrases from the source text
-- Write in engaging, natural English"""
+- Write in engaging, natural English
+
+Also subtly include:
+- Best time to visit (if relevant)
+- How long to spend there
+- Any insider tips or local secrets
+- What makes it special or unique
+- Who would enjoy it most (couples, families, solo travelers, etc.)"""
 
             context = f"""
 Lieu: {data['title']}
@@ -487,6 +538,8 @@ Contexte du site:
                 'summary': description[:100] + "..." if len(description) > 100 else description,
                 'neighborhood_id': neighborhood_id,  # Use the proper foreign key
                 'address': data['address'],
+                'latitude': data.get('latitude'),
+                'longitude': data.get('longitude'),
                 'is_active': False,
                 'source_url': url,
                 'source_name': self.site_name,
@@ -502,7 +555,16 @@ Contexte du site:
                     'nearest_stations': data['nearest_stations'],
                     'images': data['images'][:3],
                     'tokyo_cheapo_data': True,
-                    'practical_info': enriched.get('practical_info', {})
+                    'practical_info': enriched.get('practical_info', {}),
+                    # New tourism agent features
+                    'best_time': enriched.get('best_time', 'anytime'),
+                    'time_needed': enriched.get('time_needed', '1h'),
+                    'reservation': enriched.get('reservation', 'unknown'),
+                    'english_friendly': enriched.get('english_friendly', True),
+                    'coordinates': {
+                        'lat': data.get('latitude'),
+                        'lng': data.get('longitude')
+                    } if data.get('latitude') else None
                 },
                 
                 'metadata': {
