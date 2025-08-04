@@ -123,6 +123,9 @@ class TokyoCheapoCrawler:
         self.error_count = 0
         self.total_cost_estimate = 0.0
         
+        # Load neighborhoods from database
+        self.neighborhoods = self.load_neighborhoods()
+        
     def validate_environment(self):
         """Valide les variables d'environnement"""
         required_vars = [
@@ -140,6 +143,17 @@ class TokyoCheapoCrawler:
             raise EnvironmentError(error_msg)
             
         logger.info("✅ Configuration validée")
+        
+    def load_neighborhoods(self) -> Dict[str, str]:
+        """Charge la liste des neighborhoods depuis Supabase"""
+        try:
+            result = self.supabase.table('neighborhoods').select('id, name').eq('is_active', True).execute()
+            neighborhoods = {item['name']: item['id'] for item in result.data}
+            logger.info(f"✅ {len(neighborhoods)} neighborhoods chargés")
+            return neighborhoods
+        except Exception as e:
+            logger.error(f"Erreur chargement neighborhoods: {str(e)}")
+            return {}
         
     def extract_tokyo_cheapo_data(self, html: str, url: str) -> Dict[str, Any]:
         """Extraction spécialisée pour Tokyo Cheapo"""
@@ -242,20 +256,22 @@ class TokyoCheapoCrawler:
     def classify_and_enrich(self, extracted_data: Dict[str, Any], url: str) -> Tuple[bool, str, Dict]:
         """Classification et enrichissement intelligent"""
         try:
-            # Prompt optimisé pour Tokyo Cheapo
-            prompt = """Tu es un expert de Tokyo qui connaît parfaitement le site Tokyo Cheapo.
+            # Prompt optimized for Tokyo Cheapo (in English)
+            neighborhoods_list = ', '.join(self.neighborhoods.keys())
+            prompt = f"""You are a Tokyo expert who knows Tokyo Cheapo website perfectly.
             
-Analyse ces informations et détermine:
-1. Est-ce un lieu physique UNIQUE qu'on peut visiter (pas un article ou guide général) ?
-2. Si OUI, catégorise précisément.
+Analyze this information and determine:
+1. Is this a UNIQUE physical place that can be visited (not a general article or guide)?
+2. If YES, categorize precisely.
+3. Identify the exact neighborhood from this list: {neighborhoods_list}
 
-Réponds en JSON: {
+Reply in JSON: {{
   "is_poi": true/false,
-  "category": "TEMPLE|SHRINE|MUSEUM|PARK|RESTAURANT|CAFE|BAR|HOTEL|MARKET|SHOP|ATTRACTION|ONSEN|AUTRE",
-  "subcategory": "plus spécifique si possible",
-  "neighborhood": "quartier de Tokyo si identifiable",
+  "category": "TEMPLE|SHRINE|MUSEUM|PARK|RESTAURANT|CAFE|BAR|HOTEL|MARKET|SHOP|ATTRACTION|ONSEN|OTHER",
+  "subcategory": "more specific if possible",
+  "neighborhood": "exact name from the list above, or null if not found",
   "type_visitor": ["budget", "culture", "food", "family", etc.]
-}"""
+}}"""
 
             context = f"""
 Titre: {extracted_data['title']}
@@ -332,30 +348,31 @@ Contenu (extrait): {extracted_data['content'][:1500]}
     def generate_unique_description(self, data: Dict[str, Any], category: str, enriched: Dict) -> str:
         """Génère une description unique et captivante avec GPT-4"""
         try:
-            # Adapter le style au type de lieu
+            # Adapt style to place type (in English)
             style_map = {
-                'RESTAURANT': "gourmand et appétissant, évoquant les saveurs",
-                'TEMPLE': "spirituel et serein, capturant l'atmosphère sacrée",
-                'SHRINE': "mystique et traditionnel, évoquant l'histoire",
-                'MUSEUM': "culturel et enrichissant, soulignant l'intérêt",
-                'PARK': "naturel et apaisant, décrivant la beauté",
-                'MARKET': "vibrant et animé, capturant l'énergie",
-                'ONSEN': "relaxant et authentique, évoquant le bien-être",
-                'ATTRACTION': "excitant et mémorable, donnant envie"
+                'RESTAURANT': "appetizing and flavorful, evoking tastes and aromas",
+                'TEMPLE': "spiritual and serene, capturing the sacred atmosphere",
+                'SHRINE': "mystical and traditional, evoking historical significance",
+                'MUSEUM': "cultural and enriching, highlighting educational value",
+                'PARK': "natural and peaceful, describing scenic beauty",
+                'MARKET': "vibrant and bustling, capturing local energy",
+                'ONSEN': "relaxing and authentic, evoking wellness and tradition",
+                'ATTRACTION': "exciting and memorable, inspiring curiosity"
             }
             
-            style = style_map.get(category, "engageant et informatif")
+            style = style_map.get(category, "engaging and informative")
             
-            # Contexte riche pour GPT-4
-            prompt = f"""Tu es un écrivain de guides de voyage expert sur Tokyo, réputé pour tes descriptions vivantes.
+            # Context for GPT-4 (in English)
+            prompt = f"""You are an expert travel guide writer specializing in Tokyo, known for your vivid descriptions.
             
-Crée une description {style} de ce lieu en 150-200 mots.
+Create a {style} description of this place in 150-200 words.
 IMPORTANT: 
-- La description doit être 100% ORIGINALE
-- Évoque les SENSATIONS et ÉMOTIONS
-- Inclus des détails PRATIQUES subtilement
-- Adapte le ton aux visiteurs "budget-conscious" (style Tokyo Cheapo)
-- NE COPIE AUCUNE phrase du texte source"""
+- The description must be 100% ORIGINAL in ENGLISH
+- Evoke SENSATIONS and EMOTIONS visitors will experience
+- Include PRACTICAL details subtly woven into the narrative
+- Adapt the tone for budget-conscious travelers (Tokyo Cheapo style)
+- DO NOT COPY any phrases from the source text
+- Write in engaging, natural English"""
 
             context = f"""
 Lieu: {data['title']}
@@ -440,15 +457,19 @@ Contexte du site:
                 logger.info(f"⚠️ Doublon détecté: {data['title']}")
                 return 'skipped_duplicate'
                 
+            # Get neighborhood_id from enriched data
+            neighborhood_id = None
+            if enriched.get('neighborhood') and enriched['neighborhood'] in self.neighborhoods:
+                neighborhood_id = self.neighborhoods[enriched['neighborhood']]
+                logger.debug(f"✓ Neighborhood trouvé: {enriched['neighborhood']}")
+            
             # Préparer les données pour Supabase
             location_data = {
                 'name': data['title'],
                 'name_jp': None,  # À extraire si présent dans le contenu
                 'description': description,
                 'summary': description[:100] + "..." if len(description) > 100 else description,
-                # 'category': category,  # On utilisera les tags à la place
-                # 'subcategory': enriched.get('subcategory'),
-                # 'neighborhood': enriched.get('neighborhood'),  # Pas de colonne neighborhood
+                'neighborhood_id': neighborhood_id,  # Use the proper foreign key
                 'address': data['address'],
                 'is_active': False,
                 'source_url': url,
@@ -514,14 +535,7 @@ Contexte du site:
                         'tag_id': category_tag_id
                     })
             
-            # 2. Tags de quartier
-            if enriched.get('neighborhood'):
-                neighborhood_tag_id = self.get_or_create_tag(enriched['neighborhood'], 'feature')
-                if neighborhood_tag_id:
-                    tags_to_create.append({
-                        'location_id': location_id,
-                        'tag_id': neighborhood_tag_id
-                    })
+            # 2. Tags de quartier - Removed since we use neighborhood_id foreign key now
             
             # 3. Tags de type de visiteur (avec mapping et types corrects)
             for visitor_type in enriched.get('visitor_types', []):
