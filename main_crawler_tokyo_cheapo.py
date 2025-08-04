@@ -125,6 +125,7 @@ class TokyoCheapoCrawler:
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
         self.scrapingbee_api_key = os.getenv('SCRAPINGBEE_API_KEY')
+        self.unsplash_key = os.getenv('UNSPLASH_ACCESS_KEY', '')  # Optional for free images
         
         # Configuration
         self.site_name = "Tokyo Cheapo"
@@ -263,7 +264,7 @@ class TokyoCheapoCrawler:
         tag_links = soup.find_all('a', {'rel': 'tag'})
         data['tags'] = [tag.get_text(strip=True) for tag in tag_links]
         
-        # Images principales
+        # Images principales (de Tokyo Cheapo - souvent de mauvaise qualité)
         images = soup.find_all('img', limit=5)
         data['images'] = [img.get('src', '') for img in images if img.get('src') and 'logo' not in img.get('src', '').lower()]
         
@@ -364,6 +365,48 @@ Contenu (extrait): {extracted_data['content'][:1500]}
             logger.error(f"Erreur classification: {str(e)}")
             return False, 'ERROR', {}
             
+    def get_free_image(self, place_name: str, category: str) -> Optional[str]:
+        """Récupère une image gratuite depuis Unsplash (5000/heure gratuit)"""
+        if not self.unsplash_key:
+            return None
+            
+        try:
+            # Construire la requête de recherche intelligente
+            search_queries = [
+                f"{place_name} Tokyo",  # Nom exact
+                f"{category} Tokyo Japan",  # Catégorie générique
+                f"Tokyo {category.lower()}",  # Alternative
+            ]
+            
+            headers = {
+                'Authorization': f'Client-ID {self.unsplash_key}'
+            }
+            
+            for query in search_queries:
+                response = requests.get(
+                    'https://api.unsplash.com/search/photos',
+                    headers=headers,
+                    params={
+                        'query': query,
+                        'orientation': 'landscape',
+                        'per_page': 1
+                    },
+                    timeout=5
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data['results']:
+                        # Retourner l'URL de taille moyenne (parfait pour web)
+                        image_url = data['results'][0]['urls']['regular']
+                        logger.debug(f"✓ Image Unsplash trouvée pour: {query}")
+                        return image_url
+                        
+        except Exception as e:
+            logger.warning(f"Erreur Unsplash: {str(e)}")
+            
+        return None
+    
     def extract_neighborhood_from_address(self, address: str) -> Optional[str]:
         """Extrait le quartier depuis l'adresse"""
         if not address:
@@ -545,6 +588,7 @@ Contexte du site:
                 'source_name': self.site_name,
                 'source_scraped_at': datetime.now(timezone.utc).isoformat(),
                 'embedding': embedding,
+                'image_url': self.get_free_image(data['title'], category),  # Free image from Unsplash
                 
                 # Features enrichies spéciales Tokyo Cheapo
                 'features': {
