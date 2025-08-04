@@ -402,17 +402,20 @@ Contexte du site:
                 return result.data[0]['id']
             
             # Créer le tag s'il n'existe pas
+            slug = tag_name.lower().replace(' ', '-').replace('/', '-').replace('&', 'and')
             new_tag = self.supabase.table('tags').insert({
                 'name': tag_name,
                 'tag_type': tag_type,
-                'slug': tag_name.lower().replace(' ', '-')
+                'slug': slug
             }).execute()
             
             if new_tag.data and len(new_tag.data) > 0:
+                logger.debug(f"✓ Tag créé: {tag_name} ({tag_type})")
                 return new_tag.data[0]['id']
                 
         except Exception as e:
-            logger.error(f"Erreur gestion tag {tag_name}: {str(e)}")
+            logger.warning(f"⚠️ Impossible de gérer le tag '{tag_name}' ({tag_type}): {str(e)}")
+            # On continue sans ce tag - on pourra le corriger plus tard
         return None
     
     def save_enhanced_poi(self, data: Dict, description: str, category: str, enriched: Dict, url: str):
@@ -549,9 +552,14 @@ Contexte du site:
                         'tag_id': free_tag_id
                     })
             
-            # Insérer tous les tags en une fois
+            # Insérer tous les tags en une fois (avec gestion d'erreur souple)
             if tags_to_create:
-                self.supabase.table('location_tags').insert(tags_to_create).execute()
+                try:
+                    self.supabase.table('location_tags').insert(tags_to_create).execute()
+                    logger.info(f"✓ {len(tags_to_create)} tags associés")
+                except Exception as e:
+                    logger.warning(f"⚠️ Erreur lors de l'association des tags: {str(e)}")
+                    # On continue quand même - on pourra retraiter plus tard
             
             logger.info(f"✅ POI créé: {data['title']} ({category}) - {enriched.get('neighborhood', 'Tokyo')} - {len(tags_to_create)} tags")
             return 'success'
@@ -726,7 +734,7 @@ Contexte du site:
 ❌ Erreurs: {self.error_count}
 ⏱️ Durée: {duration:.1f} minutes
 💰 Coût total: ${self.total_cost_estimate:.2f}
-💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI" if self.success_count > 0 else "N/A
+💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI" if self.success_count > 0 else "N/A"
             """)
             
         except Exception as e:
