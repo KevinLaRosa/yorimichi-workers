@@ -124,7 +124,7 @@ class TokyoCheapoCrawler:
         openai.api_key = os.getenv('OPENAI_API_KEY')
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
-        self.scrapingbee_api_key = os.getenv('SCRAPINGBEE_API_KEY')
+        # ScraperAPI est maintenant utilisé avec la clé directement dans le code
         
         # Configuration
         self.site_name = "Tokyo Cheapo"
@@ -140,13 +140,27 @@ class TokyoCheapoCrawler:
         # Load neighborhoods from database
         self.neighborhoods = self.load_neighborhoods()
         
+        # Charger les URLs déjà scrapées au démarrage
+        self.existing_urls = set()
+        try:
+            existing = self.supabase.table('locations') \
+                .select('source_url') \
+                .like('source_url', '%tokyocheapo.com%') \
+                .execute()
+            
+            if existing.data:
+                self.existing_urls = {loc['source_url'] for loc in existing.data if loc.get('source_url')}
+                logger.info(f"✅ {len(self.existing_urls)} URLs Tokyo Cheapo déjà scrapées")
+        except Exception as e:
+            logger.warning(f"⚠️ Impossible de charger les URLs existantes: {e}")
+        
     def validate_environment(self):
         """Valide les variables d'environnement"""
         required_vars = [
             'NEXT_PUBLIC_SUPABASE_URL',
             'SUPABASE_SERVICE_ROLE_KEY',
-            'OPENAI_API_KEY',
-            'SCRAPINGBEE_API_KEY'
+            'OPENAI_API_KEY'
+            # SCRAPINGBEE_API_KEY n'est plus nécessaire - on utilise ScraperAPI
         ]
         
         missing_vars = [var for var in required_vars if not os.getenv(var)]
@@ -776,6 +790,11 @@ Contexte du site:
             logger.info(f"   🏘️ Neighborhood: {enriched.get('neighborhood', 'Tokyo')}")
             logger.info(f"   🏷️ Tags: {len(tags_to_create)}")
             logger.info(f"   📏 Coordinates: {location_data.get('latitude', 'N/A')}, {location_data.get('longitude', 'N/A')}")
+            
+            # Ajouter à la liste des URLs scrapées
+            if 'source_url' in location_data:
+                self.existing_urls.add(location_data['source_url'])
+            
             return 'success'
             
         except Exception as e:
@@ -785,16 +804,25 @@ Contexte du site:
     def process_url(self, url: str) -> str:
         """Traite une URL complète"""
         try:
+            # Vérifier si l'URL est déjà scrapée
+            if url in self.existing_urls:
+                logger.info(f"⏭️ URL déjà scrapée: {url}")
+                self.skip_count += 1
+                return 'skipped_existing_url'
+            
             logger.info(f"\n{'='*60}")
             logger.info(f"🔍 Processing URL: {url}")
             logger.info(f"{'='*60}")
             
             # 1. Télécharger la page
-            response = requests.get('https://app.scrapingbee.com/api/v1/', params={
-                'api_key': self.scrapingbee_api_key,
+            # Utiliser ScraperAPI au lieu de ScrapingBee
+            response = requests.get('http://api.scraperapi.com', params={
+                'api_key': '941de144518cb736f43c2b01632de99a',  # ScraperAPI key
                 'url': url,
-                'render_js': 'false',
-                'premium_proxy': 'false'
+                'render': 'true',  # 'render' pas 'render_js' pour ScraperAPI
+                'premium': 'true',  # 'premium' pas 'premium_proxy' pour ScraperAPI
+                'country_code': 'jp',
+                'wait_for_selector': '.item-card'
             }, timeout=60)
             response.raise_for_status()
             
