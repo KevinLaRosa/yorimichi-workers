@@ -387,8 +387,8 @@ Contexte du site:
                 'name_jp': None,  # À extraire si présent dans le contenu
                 'description': description,
                 'summary': description[:100] + "..." if len(description) > 100 else description,
-                'category': category,
-                'subcategory': enriched.get('subcategory'),
+                # 'category': category,  # On utilisera les tags à la place
+                # 'subcategory': enriched.get('subcategory'),
                 'neighborhood': enriched.get('neighborhood'),
                 'address': data['address'],
                 'is_active': False,
