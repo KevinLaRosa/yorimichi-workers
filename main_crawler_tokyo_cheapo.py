@@ -37,21 +37,37 @@ logger = logging.getLogger('TokyoCheapoCrawler')
 class TokyoCheapoCrawler:
     """Crawler optimisé spécifiquement pour Tokyo Cheapo"""
     
-    # Mapping des catégories Tokyo Cheapo vers les catégories Yorimichi
+    # Mapping des catégories Tokyo Cheapo vers les catégories Yorimichi (en anglais)
     CATEGORY_MAPPING = {
         'TEMPLE': 'Temple',
-        'SHRINE': 'Sanctuaire',
-        'MUSEUM': 'Musée',
-        'PARK': 'Parc',
+        'SHRINE': 'Temple',  # Group with Temple
+        'MUSEUM': 'Museum',
+        'PARK': 'Park',
         'RESTAURANT': 'Restaurant',
-        'CAFE': 'Café',
+        'CAFE': 'Café',  # Keep accent as in DB
         'BAR': 'Bar',
-        'HOTEL': 'Hôtel',
-        'MARKET': 'Marché',
-        'SHOP': 'Shopping',
-        'ATTRACTION': 'Attraction',
-        'ONSEN': 'Onsen',
-        'AUTRE': 'Autre'
+        'HOTEL': 'Accommodation',  # Use existing tag
+        'MARKET': 'Market',  # Will create as feature
+        'SHOP': 'Shopping',  # Use as feature, not category
+        'ATTRACTION': 'Observatory',  # Closest existing category
+        'ONSEN': 'Onsen',  # Will create if needed
+        'AUTRE': 'Other'  # Will create if needed
+    }
+    
+    # Mapping pour les types de visiteurs
+    VISITOR_TYPE_MAPPING = {
+        'budget': 'Budget',  # Use as price_range
+        'culture': 'Culture',  # Use as feature
+        'food': 'Dining',  # Already exists as feature
+        'family': 'Family Friendly',  # Already exists
+        'luxury': 'Luxury',  # Will create as price_range
+        'local': 'Local',  # Already exists as ambiance
+        'tourist': 'Tourist',  # Already exists as ambiance
+        'traditional': 'Traditional',  # Already exists as ambiance
+        'modern': 'Modern',  # Already exists as ambiance
+        'entertainment': 'Entertainment',  # Already exists as feature
+        'nightlife': 'Nightlife',  # Already exists as feature
+        'shopping': 'Shopping',  # Already exists as feature
     }
     
     # Configuration des sitemaps par ordre de valeur
@@ -469,12 +485,31 @@ Contexte du site:
             
             # 1. Tag de catégorie principale (avec mapping)
             mapped_category = self.CATEGORY_MAPPING.get(category, category)
-            category_tag_id = self.get_or_create_tag(mapped_category, 'category')
-            if category_tag_id:
-                tags_to_create.append({
-                    'location_id': location_id,
-                    'tag_id': category_tag_id
-                })
+            
+            # Handle special cases where some categories should be features
+            if category in ['MARKET', 'SHOP']:
+                # These are features, not categories
+                feature_tag_id = self.get_or_create_tag(mapped_category, 'feature')
+                if feature_tag_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': feature_tag_id
+                    })
+                # Also add a default category
+                default_category_id = self.get_or_create_tag('Shopping', 'feature')
+                if default_category_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': default_category_id
+                    })
+            else:
+                # Normal category tag
+                category_tag_id = self.get_or_create_tag(mapped_category, 'category')
+                if category_tag_id:
+                    tags_to_create.append({
+                        'location_id': location_id,
+                        'tag_id': category_tag_id
+                    })
             
             # 2. Tags de quartier
             if enriched.get('neighborhood'):
@@ -485,9 +520,20 @@ Contexte du site:
                         'tag_id': neighborhood_tag_id
                     })
             
-            # 3. Tags de type de visiteur
+            # 3. Tags de type de visiteur (avec mapping et types corrects)
             for visitor_type in enriched.get('visitor_types', []):
-                visitor_tag_id = self.get_or_create_tag(visitor_type, 'ambiance')
+                # Map visitor type and determine correct tag type
+                mapped_visitor = self.VISITOR_TYPE_MAPPING.get(visitor_type.lower(), visitor_type)
+                
+                # Determine tag type based on mapping
+                if visitor_type.lower() in ['budget', 'luxury']:
+                    tag_type = 'price_range'
+                elif visitor_type.lower() in ['local', 'tourist', 'traditional', 'modern']:
+                    tag_type = 'ambiance'
+                else:
+                    tag_type = 'feature'
+                
+                visitor_tag_id = self.get_or_create_tag(mapped_visitor, tag_type)
                 if visitor_tag_id:
                     tags_to_create.append({
                         'location_id': location_id,
@@ -496,7 +542,7 @@ Contexte du site:
             
             # 4. Tag de prix si gratuit
             if data.get('price') and 'free' in data['price'].lower():
-                free_tag_id = self.get_or_create_tag('Gratuit', 'price_range')
+                free_tag_id = self.get_or_create_tag('Free', 'feature')  # Free already exists as feature
                 if free_tag_id:
                     tags_to_create.append({
                         'location_id': location_id,
