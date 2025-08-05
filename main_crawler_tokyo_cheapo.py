@@ -822,6 +822,13 @@ Contexte du site:
     def process_url(self, url: str) -> str:
         """Traite une URL complète"""
         try:
+            # Vérifier si c'est une image
+            image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']
+            if any(url.lower().endswith(ext) for ext in image_extensions):
+                logger.info(f"🖼️ Image ignorée: {url}")
+                self.skip_count += 1
+                return 'skipped_image'
+            
             # Vérifier si l'URL est déjà scrapée
             if url in self.existing_urls:
                 logger.info(f"⏭️ URL déjà scrapée: {url}")
@@ -832,29 +839,52 @@ Contexte du site:
             logger.info(f"🔍 Processing URL: {url}")
             logger.info(f"{'='*60}")
             
-            # 1. Télécharger la page selon le service configuré
-            if self.scraping_service == 'scraperapi':
-                # Utiliser ScraperAPI
-                response = requests.get('http://api.scraperapi.com', params={
-                    'api_key': self.scraperapi_key,
-                    'url': url,
-                    'render': 'true',  # 'render' pas 'render_js' pour ScraperAPI
-                    'premium': 'true',  # 'premium' pas 'premium_proxy' pour ScraperAPI
-                    'country_code': 'jp',
-                    'wait_for_selector': '.item-card'
-                }, timeout=60)
-            else:
-                # Utiliser ScrapingBee (par défaut)
-                response = requests.get('https://app.scrapingbee.com/api/v1/', params={
-                    'api_key': self.scrapingbee_api_key,
-                    'url': url,
-                    'render_js': 'true',
-                    'premium_proxy': 'true',
-                    'country_code': 'jp',
-                    'wait': '5',
-                    'wait_for': '.item-card'
-                }, timeout=60)
-            response.raise_for_status()
+            # 1. Télécharger la page avec retry pour les timeouts
+            max_retries = 3
+            retry_count = 0
+            response = None
+            
+            while retry_count < max_retries:
+                try:
+                    if self.scraping_service == 'scraperapi':
+                        # Utiliser ScraperAPI
+                        response = requests.get('http://api.scraperapi.com', params={
+                            'api_key': self.scraperapi_key,
+                            'url': url,
+                            'render': 'true',  # 'render' pas 'render_js' pour ScraperAPI
+                            'premium': 'true',  # 'premium' pas 'premium_proxy' pour ScraperAPI
+                            'country_code': 'jp',
+                            'wait_for_selector': '.item-card'
+                        }, timeout=120)  # Augmenter le timeout à 2 minutes
+                    else:
+                        # Utiliser ScrapingBee (par défaut)
+                        response = requests.get('https://app.scrapingbee.com/api/v1/', params={
+                            'api_key': self.scrapingbee_api_key,
+                            'url': url,
+                            'render_js': 'true',
+                            'premium_proxy': 'true',
+                            'country_code': 'jp',
+                            'wait': '5',
+                            'wait_for': '.item-card'
+                        }, timeout=120)  # Augmenter le timeout à 2 minutes
+                    
+                    response.raise_for_status()
+                    break  # Succès, sortir de la boucle
+                    
+                except requests.exceptions.Timeout:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        logger.warning(f"⏱️ Timeout, retry {retry_count}/{max_retries} dans 5 secondes...")
+                        time.sleep(5)
+                    else:
+                        raise
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 429:  # Rate limit
+                        logger.warning(f"⚠️ Rate limit, attente 30 secondes...")
+                        time.sleep(30)
+                        retry_count += 1
+                    else:
+                        raise
             
             # 2. Extraire les données Tokyo Cheapo
             extracted = self.extract_tokyo_cheapo_data(response.text, url)
