@@ -826,7 +826,7 @@ Contexte du site:
             if url in self.existing_urls:
                 logger.info(f"⏭️ URL déjà scrapée: {url}")
                 self.skip_count += 1
-                return 'skipped_existing_url'
+                return 'skipped_existing'  # Utiliser un statut valide
             
             logger.info(f"\n{'='*60}")
             logger.info(f"🔍 Processing URL: {url}")
@@ -977,7 +977,9 @@ Contexte du site:
                     else:
                         self.error_count += 1
                         
-                    self.mark_url_processed(url, status)
+                    # Ne pas marquer les URLs déjà existantes
+                    if status != 'skipped_existing':
+                        self.mark_url_processed(url, status)
                     
                     # Progress
                     if idx % 5 == 0:  # More frequent updates
