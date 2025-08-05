@@ -124,11 +124,7 @@ class TokyoCheapoCrawler:
         openai.api_key = os.getenv('OPENAI_API_KEY')
         self.openai_client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
-        # Configuration ScrapingBee
         self.scrapingbee_api_key = os.getenv('SCRAPINGBEE_API_KEY')
-        if not self.scrapingbee_api_key:
-            logger.error("❌ SCRAPINGBEE_API_KEY non définie")
-            raise ValueError("SCRAPINGBEE_API_KEY est requise")
         
         # Configuration
         self.site_name = "Tokyo Cheapo"
@@ -163,14 +159,9 @@ class TokyoCheapoCrawler:
         required_vars = [
             'NEXT_PUBLIC_SUPABASE_URL',
             'SUPABASE_SERVICE_ROLE_KEY',
-            'OPENAI_API_KEY'
+            'OPENAI_API_KEY',
+            'SCRAPINGBEE_API_KEY'
         ]
-        
-        # Ajouter la clé API du service de scraping choisi
-        scraping_service = os.getenv('SCRAPING_SERVICE', 'scrapingbee').lower()
-        if scraping_service == 'scrapingbee':
-            required_vars.append('SCRAPINGBEE_API_KEY')
-        # ScraperAPI a une clé par défaut, donc pas obligatoire
         
         missing_vars = [var for var in required_vars if not os.getenv(var)]
         
@@ -830,33 +821,14 @@ Contexte du site:
             logger.info(f"🔍 Processing URL: {url}")
             logger.info(f"{'='*60}")
             
-            # 1. Télécharger la page - simple et rapide
-            try:
-                # Utiliser ScrapingBee (par défaut)
-                response = requests.get('https://app.scrapingbee.com/api/v1/', params={
-                    'api_key': self.scrapingbee_api_key,
-                    'url': url,
-                    'render_js': 'true',
-                    'premium_proxy': 'true',
-                    'country_code': 'jp',
-                    'wait': '2',  # Attente minimale
-                    'wait_for': 'h1'  # Attendre juste le titre
-                }, timeout=30)  # Timeout court
-                
-                response.raise_for_status()
-            except requests.exceptions.Timeout:
-                logger.warning(f"⏱️ Timeout après 30s, on skip")
-                return 'timeout'
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:
-                    logger.warning(f"⚠️ Rate limit, pause 30s...")
-                    time.sleep(30)
-                    return 'rate_limited'
-                elif e.response.status_code == 502:
-                    logger.warning(f"⚠️ Bad Gateway, on skip")
-                    return 'bad_gateway'
-                else:
-                    raise
+            # 1. Télécharger la page
+            response = requests.get('https://app.scrapingbee.com/api/v1/', params={
+                'api_key': self.scrapingbee_api_key,
+                'url': url,
+                'render_js': 'false',  # Pas besoin de JS pour Tokyo Cheapo
+                'premium_proxy': 'false'  # Pas besoin de proxy premium
+            }, timeout=60)
+            response.raise_for_status()
             
             # 2. Extraire les données Tokyo Cheapo
             extracted = self.extract_tokyo_cheapo_data(response.text, url)
