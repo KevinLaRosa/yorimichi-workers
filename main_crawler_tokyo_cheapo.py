@@ -899,23 +899,48 @@ Contexte du site:
                     soup = BeautifulSoup(resp.content, 'xml')
                     urls = [loc.text for loc in soup.find_all('loc')]
                     
-                    # Filtrer les URLs WordPress inutiles
+                    # Filtrer les URLs avec une logique intelligente basée sur le type de sitemap
                     filtered_urls = []
                     for url in urls:
-                        # Ignorer les uploads WordPress et autres fichiers
-                        if any(pattern in url for pattern in [
+                        # Toujours ignorer les fichiers médias et WordPress
+                        if any(pattern in url.lower() for pattern in [
                             '/wp-content/uploads/',
                             '/cdn.cheapoguides.com/wp-content/',
-                            '.jpg', '.jpeg', '.png', '.gif', '.webp',
-                            '/feed/', '/comments/', '/trackback/'
+                            '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg',
+                            '/feed/', '/comments/', '/trackback/',
+                            '/author/', '/tag/', '/page/'
                         ]):
                             continue
-                        # Garder seulement les vraies pages POI
-                        if any(pattern in url for pattern in ['/place/', '/food-and-drink/', '/accommodation/']):
+                        
+                        # Logique spécifique selon le type de sitemap
+                        if 'restaurant-sitemap' in sitemap_url:
+                            # Pour les restaurants, être plus inclusif
+                            # Accepter toutes les URLs sauf celles explicitement exclues ci-dessus
                             filtered_urls.append(url)
+                            logger.debug(f"✅ Restaurant URL: {url}")
+                        elif 'place-sitemap' in sitemap_url:
+                            # Pour les places, chercher le pattern /place/
+                            if '/place/' in url:
+                                filtered_urls.append(url)
+                        elif 'accommodation-sitemap' in sitemap_url:
+                            # Pour l'hébergement
+                            if '/accommodation/' in url:
+                                filtered_urls.append(url)
+                        else:
+                            # Par défaut, utiliser l'ancienne logique
+                            if any(pattern in url for pattern in ['/place/', '/restaurant/', '/accommodation/']):
+                                filtered_urls.append(url)
                     
                     all_urls.extend(filtered_urls)
                     logger.info(f"✅ {len(filtered_urls)} URLs POI (sur {len(urls)} total) de {sitemap_url}")
+                    
+                    # Log d'analyse pour les restaurants si on trouve 0 URLs
+                    if 'restaurant-sitemap' in sitemap_url and len(filtered_urls) == 0:
+                        logger.warning(f"⚠️ 0 restaurants trouvés dans {sitemap_url}")
+                        logger.info("🔍 Analyse des 10 premières URLs du sitemap:")
+                        for i, url in enumerate(urls[:10]):
+                            logger.info(f"   {i+1}. {url}")
+                        
                 except Exception as e:
                     logger.error(f"Erreur sitemap {sitemap_url}: {e}")
                     
