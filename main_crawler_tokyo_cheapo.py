@@ -827,7 +827,7 @@ Contexte du site:
             if any(url.lower().endswith(ext) for ext in image_extensions):
                 logger.info(f"🖼️ Image ignorée: {url}")
                 self.skip_count += 1
-                return 'skipped_image'
+                return 'skipped_not_a_poi'  # Utiliser un statut existant
             
             # Vérifier si l'URL est déjà scrapée
             if url in self.existing_urls:
