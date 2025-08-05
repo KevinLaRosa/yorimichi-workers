@@ -911,7 +911,7 @@ Contexte du site:
                         ]):
                             continue
                         # Garder seulement les vraies pages POI
-                        if '/place/' in url:
+                        if any(pattern in url for pattern in ['/place/', '/food-and-drink/', '/accommodation/']):
                             filtered_urls.append(url)
                     
                     all_urls.extend(filtered_urls)
@@ -1005,7 +1005,7 @@ Contexte du site:
 ❌ Erreurs: {self.error_count}
 ⏱️ Durée: {duration:.1f} minutes
 💰 Coût total: ${self.total_cost_estimate:.2f}
-💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI" if self.success_count > 0 else "N/A"
+💎 Coût/POI: ${self.total_cost_estimate/self.success_count:.2f} par POI" if self.success_count > 0 else "💎 Coût/POI: N/A"
             """)
             
         except Exception as e:
