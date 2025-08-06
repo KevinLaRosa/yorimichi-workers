@@ -66,7 +66,7 @@ class EnrichmentConfig:
     max_images_per_poi: int = 5
     jpeg_quality: int = 85
     db_name: str = "postgres"
-    db_port: int = 6543
+    db_port: int = 5432  # Port standard PostgreSQL
 
 
 class CompleteEnricher:
@@ -162,17 +162,20 @@ class CompleteEnricher:
             bucket_names = [b['name'] for b in buckets]
             
             if self.config.image_bucket not in bucket_names:
+                # Fix: le nom du bucket doit être passé comme premier argument
                 self.supabase.storage.create_bucket(
-                    self.config.image_bucket,
-                    {
-                        'public': True,
-                        'file_size_limit': 5 * 1024 * 1024,  # 5MB
-                        'allowed_mime_types': ['image/jpeg', 'image/png', 'image/webp']
-                    }
+                    self.config.image_bucket  # Juste le nom, pas d'options pour l'instant
                 )
                 logger.info(f"✅ Bucket '{self.config.image_bucket}' créé")
+            else:
+                logger.info(f"✅ Bucket '{self.config.image_bucket}' existe déjà")
         except Exception as e:
-            logger.error(f"Erreur création bucket: {e}")
+            # Si le bucket existe déjà, ce n'est pas grave
+            if 'already exists' in str(e).lower() or 'duplicate' in str(e).lower():
+                logger.info(f"✅ Bucket '{self.config.image_bucket}' existe déjà")
+            else:
+                logger.warning(f"⚠️ Erreur vérification bucket: {e}")
+                # Continuer quand même, le bucket existe peut-être déjà
             
     def connect_db(self):
         """Connexion à la base de données Supabase"""
@@ -547,6 +550,9 @@ class CompleteEnricher:
         logger.info("🚀 ENRICHISSEMENT COMPLET DES POIs")
         logger.info("="*60)
         
+        conn = None
+        cursor = None
+        
         try:
             # Récupérer les POIs
             conn = self.connect_db()
@@ -751,14 +757,17 @@ def main():
     
     project_id = supabase_url.replace('https://', '').split('.')[0]
     
+    # Pour Supabase, utiliser db.supabase.co au lieu de pooler.supabase.com
+    # Le port 5432 est pour la connexion directe
     config = EnrichmentConfig(
         foursquare_api_key=os.getenv('FOURSQUARE_API_KEY'),
         supabase_url=supabase_url,
         supabase_anon_key=supabase_anon_key,
         supabase_db_password=supabase_db_password,
-        db_host=f"{project_id}.pooler.supabase.com",
-        db_user=f"postgres.{project_id}",
-        db_password=supabase_db_password
+        db_host=f"db.{project_id}.supabase.co",  # Utiliser db. au lieu de pooler.
+        db_user="postgres",  # Juste 'postgres', pas avec le project_id
+        db_password=supabase_db_password,
+        db_port=5432  # Port standard PostgreSQL pour connexion directe
     )
     
     # Créer l'enrichisseur
