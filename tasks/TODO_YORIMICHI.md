@@ -14,32 +14,57 @@
 
 ---
 
-## 🗾 Phase 2 : Correction des Coordonnées GPS
-**Status: À FAIRE**
-**Temps estimé: 2-3 heures**
+## 🗾 Phase 2 : Géocoding et Enrichissement avec Foursquare
+**Status: EN COURS** ⚠️ (jageocoder ne fonctionne pas, pivot vers Foursquare)
+**Temps estimé: 3-4 heures**
+**Solution: Utiliser Foursquare API pour géocoding ET enrichissement simultané**
 
-### Installation et préparation
-- [ ] Installer jageocoder : `pip install jageocoder`
-- [ ] Tester la connexion au serveur Jageocoder
+### ⚠️ PROBLÈME IDENTIFIÉ
+- **Noms japonais non scrapés** depuis Tokyo Cheapo (oubli lors du scraping initial)
+- **Solution**: Foursquare fonctionne bien avec noms anglais + matching par proximité
 
-### Exécution du fix
-- [ ] Lancer le script de geocoding :
+### Setup Foursquare (GRATUIT - $200/mois free tier)
+- [ ] Créer compte sur https://foursquare.com/developers/
+- [ ] Obtenir API Key
+- [ ] Ajouter dans .env : `FOURSQUARE_API_KEY=your_key`
+
+### Exécution du géocoding + enrichissement
+- [ ] Test sur échantillon :
   ```bash
-  python fix_all_geocoding.py --platform tokyo_cheapo
+  python enrich_with_foursquare.py --limit 10 --test
   ```
-- [ ] Vérifier les POIs sans coordonnées avant :
-  ```sql
-  SELECT COUNT(*) FROM place 
-  WHERE platform = 'tokyo_cheapo' 
-  AND (latitude IS NULL OR longitude IS NULL OR latitude = 0);
+- [ ] Géocoder les POIs sans coordonnées :
+  ```bash
+  python enrich_with_foursquare.py --only-missing-coords
   ```
-- [ ] Analyser les logs pour identifier les adresses problématiques
-- [ ] Vérifier les POIs corrigés après :
-  ```sql
-  SELECT COUNT(*) FROM place 
-  WHERE platform = 'tokyo_cheapo' 
-  AND latitude IS NOT NULL AND longitude IS NOT NULL;
+- [ ] Enrichir TOUS les POIs avec métadonnées :
+  ```bash
+  python enrich_with_foursquare.py --platform tokyo_cheapo
   ```
+
+### Vérifications SQL
+```sql
+-- POIs sans coordonnées
+SELECT COUNT(*) FROM place 
+WHERE platform = 'tokyo_cheapo' 
+AND (latitude IS NULL OR latitude = 0);
+
+-- POIs enrichis avec Foursquare
+SELECT COUNT(*) FROM place 
+WHERE platform = 'tokyo_cheapo' 
+AND fsq_id IS NOT NULL;
+```
+
+### Données récupérées via Foursquare
+- ✅ Coordonnées GPS précises
+- ✅ Photos (jusqu'à 10 par lieu)
+- ✅ Rating et price tier
+- ✅ Horaires structurés
+- ✅ Numéro de téléphone
+- ✅ Site web
+- ✅ Tips/Avis utilisateurs
+- ✅ Catégories et tags
+- ✅ Statut vérifié
 
 ---
 
@@ -95,43 +120,12 @@
 
 ---
 
-## 🎯 Phase 4 : Enrichissement avec Foursquare API
-**Status: À PLANIFIER**
-**Temps estimé: 2-3 jours**
-**Budget: GRATUIT (dans le free tier $200/mois)**
-
-### 4.1 Setup Foursquare
-- [ ] Créer un compte développeur Foursquare
-- [ ] Obtenir les clés API
-- [ ] Configurer les variables d'environnement :
-  ```bash
-  FOURSQUARE_API_KEY=xxx
-  FOURSQUARE_API_SECRET=xxx
-  ```
-
-### 4.2 Développement du script d'enrichissement
-- [ ] Créer `enrich_with_foursquare.py`
-- [ ] Implémenter le matching par coordonnées + nom
-- [ ] Gérer les rate limits (50 req/sec)
-- [ ] Logger les matches réussis/échoués
-- [ ] Système de checkpoint pour reprise après interruption
-
-### 4.3 Données à récupérer prioritairement
-- [ ] **Photos** (max 10 par lieu)
-- [ ] **Rating** (note sur 10)
-- [ ] **Price tier** (1-4)
-- [ ] **Horaires structurés**
-- [ ] **Numéro de téléphone**
-- [ ] **Site web**
-- [ ] **Tips/Avis** (top 5 plus récents)
-- [ ] **Stats** (nombre de photos, tips, checkins)
-- [ ] **Verified status**
-
-### 4.4 Exécution de l'enrichissement
-- [ ] Test sur 100 POIs d'abord
-- [ ] Vérifier la qualité des matches
-- [ ] Lancer sur tous les POIs Tokyo Cheapo
-- [ ] Calculer le coût API utilisé vs free tier
+## 🎯 Phase 4 : ~~Enrichissement avec Foursquare API~~ ✅ FUSIONNÉ AVEC PHASE 2
+**Status: FUSIONNÉ** avec Phase 2 (géocoding + enrichissement simultané)
+**Note**: Le script `enrich_with_foursquare.py` fait déjà tout :
+- Géocoding des adresses manquantes
+- Enrichissement avec photos, ratings, horaires, etc.
+- Matching intelligent même sans noms japonais
 
 ---
 
@@ -308,10 +302,14 @@
 
 ## 🎯 Priorités Immédiates
 
-1. **Finir le scraping Tokyo Cheapo** ⏳
-2. **Fixer les coordonnées manquantes** 🗾
-3. **Enrichir avec Foursquare (photos + ratings)** 📸
-4. **Migrer vers horaires structurés** 🕐
+1. **Finir le scraping Tokyo Cheapo** ✅ FAIT (1322 POIs scrapés)
+2. **Géocoding + Enrichissement Foursquare** 🔄 EN COURS
+   - Setup compte Foursquare
+   - Lancer `enrich_with_foursquare.py`
+   - Récupérer coords GPS + photos + ratings + horaires
+3. **Migration schéma DB** 📊 À FAIRE
+   - Ajouter colonnes manquantes (fsq_id, rating, photos, etc.)
+4. **Gestion des images** 📸 À PLANIFIER
 
 ---
 
