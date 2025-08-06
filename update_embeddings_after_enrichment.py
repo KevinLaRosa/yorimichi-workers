@@ -185,7 +185,7 @@ class EmbeddingUpdater:
                    opening_hours, hours_display, stats, fsq_categories,
                    metadata
             FROM locations 
-            WHERE source_url LIKE '%tokyocheapo%'
+            WHERE source_url IS NOT NULL
         """
         
         if only_enriched:

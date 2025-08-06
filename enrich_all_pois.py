@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script ALL-IN-ONE pour enrichir tous les POIs Tokyo Cheapo
+Script ALL-IN-ONE pour enrichir tous les POIs avec Foursquare
 Fait TOUT en une seule exécution :
 1. Géocodage via Foursquare pour les coordonnées manquantes
 2. Enrichissement avec métadonnées Foursquare (photos, ratings, horaires)
@@ -67,7 +67,7 @@ class EnrichmentConfig:
 
 
 class CompleteEnricher:
-    """Enrichissement complet des POIs Tokyo Cheapo"""
+    """Enrichissement complet des POIs avec Foursquare"""
     
     IMAGE_SIZES = {
         'thumb': (150, 150),
@@ -278,7 +278,7 @@ class CompleteEnricher:
                 
                 # Générer le nom de fichier
                 url_hash = hashlib.md5(url.encode()).hexdigest()[:8]
-                filename = f"tokyo_cheapo/{poi_id}/{size_name}_{index}_{url_hash}.jpg"
+                filename = f"pois/{poi_id}/{size_name}_{index}_{url_hash}.jpg"
                 
                 # Upload vers Supabase
                 try:
@@ -537,11 +537,11 @@ class CompleteEnricher:
                 conn.close()
                 
     def process_all(self, limit: Optional[int] = None, only_missing_coords: bool = False,
-                   test_mode: bool = False, force_update: bool = False):
-        """Traite tous les POIs Tokyo Cheapo"""
+                   test_mode: bool = False, force_update: bool = False, resume_from_id: str = None):
+        """Traite tous les POIs"""
         
         logger.info("\n" + "="*60)
-        logger.info("🚀 ENRICHISSEMENT COMPLET TOKYO CHEAPO")
+        logger.info("🚀 ENRICHISSEMENT COMPLET DES POIs")
         logger.info("="*60)
         
         try:
@@ -567,7 +567,7 @@ class CompleteEnricher:
                        photos, hours, stats, amenities, fsq_categories,
                        fsq_enriched_at, photos_processed_at
                 FROM locations 
-                WHERE source_url LIKE '%tokyocheapo%'
+                WHERE source_url IS NOT NULL
             """
             
             # Éviter les doublons - skip les POIs déjà enrichis
@@ -576,6 +576,10 @@ class CompleteEnricher:
             
             if only_missing_coords:
                 query += " AND (latitude IS NULL OR latitude = 0)"
+                
+            # Reprendre après le dernier POI traité
+            if resume_from_id:
+                query += f" AND created_at < (SELECT created_at FROM locations WHERE id = '{resume_from_id}')"
                 
             query += " ORDER BY created_at DESC"
             
@@ -604,12 +608,17 @@ class CompleteEnricher:
                     
                 # Checkpoint tous les 25 POIs
                 if self.stats['processed'] % 25 == 0:
-                    self.save_checkpoint()
+                    self.save_checkpoint(last_processed_id=str(poi['id']))
                     self.print_stats()
                     
         except KeyboardInterrupt:
             logger.info("\n⚠️ Interruption utilisateur")
-            self.save_checkpoint()
+            # Sauvegarder le dernier ID traité
+            if 'pois' in locals() and self.stats['processed'] > 0:
+                last_id = pois[min(self.stats['processed']-1, len(pois)-1)]['id']
+                self.save_checkpoint(last_processed_id=str(last_id))
+            else:
+                self.save_checkpoint()
             
         except Exception as e:
             logger.error(f"Erreur traitement: {e}")
@@ -623,11 +632,12 @@ class CompleteEnricher:
         # Statistiques finales
         self.print_stats()
         
-    def save_checkpoint(self):
+    def save_checkpoint(self, last_processed_id=None):
         """Sauvegarde un checkpoint pour reprise"""
         checkpoint = {
             'stats': self.stats,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now().isoformat(),
+            'last_processed_id': last_processed_id
         }
         with open('enrichment_checkpoint.json', 'w') as f:
             json.dump(checkpoint, f, indent=2)
@@ -660,7 +670,7 @@ class CompleteEnricher:
 def main():
     """Point d'entrée principal"""
     
-    parser = argparse.ArgumentParser(description='Enrichissement complet des POIs Tokyo Cheapo')
+    parser = argparse.ArgumentParser(description='Enrichissement complet des POIs avec Foursquare')
     parser.add_argument('--limit', type=int, help='Nombre max de POIs à traiter')
     parser.add_argument('--only-missing-coords', action='store_true',
                        help='Traiter seulement les POIs sans coordonnées')
@@ -707,12 +717,16 @@ def main():
     enricher = CompleteEnricher(config)
     
     # Charger le checkpoint si demandé
+    resume_from_id = None
     if args.resume:
         try:
             with open('enrichment_checkpoint.json', 'r') as f:
                 checkpoint = json.load(f)
                 enricher.stats.update(checkpoint['stats'])
-                logger.info(f"♻️ Reprise depuis checkpoint: {checkpoint['stats']['processed']} POIs déjà traités")
+                resume_from_id = checkpoint.get('last_processed_id')
+                logger.info(f"♻️ Reprise depuis checkpoint:")
+                logger.info(f"   POIs déjà traités: {checkpoint['stats']['processed']}")
+                logger.info(f"   Dernier ID: {resume_from_id}")
         except:
             logger.info("Pas de checkpoint trouvé, démarrage depuis le début")
             
@@ -727,7 +741,8 @@ def main():
         limit=args.limit,
         only_missing_coords=args.only_missing_coords,
         test_mode=args.test,
-        force_update=args.force_update
+        force_update=args.force_update,
+        resume_from_id=resume_from_id
     )
     
 
