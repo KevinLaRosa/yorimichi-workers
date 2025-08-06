@@ -86,7 +86,7 @@ class CompleteEnricher:
         # Foursquare session
         self.foursquare_session = requests.Session()
         self.foursquare_session.headers.update({
-            'Authorization': self.config.foursquare_api_key,
+            'Authorization': f'Bearer {self.config.foursquare_api_key}',  # Bearer token pour Service API Keys
             'Accept': 'application/json'
         })
         
@@ -293,7 +293,8 @@ class CompleteEnricher:
                 enriched['formatted_address'] = location.get('formatted_address')
                 if location.get('formatted_address'):
                     enriched['address'] = location.get('formatted_address')
-                enriched['cross_street'] = location.get('cross_street')
+                # cross_street n'existe pas dans la base de données
+                # enriched['cross_street'] = location.get('cross_street')
                 enriched['postal_code'] = location.get('postcode')
                 
             # Contact
