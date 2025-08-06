@@ -47,10 +47,16 @@ class EmbeddingUpdater:
             sys.exit(1)
         self.openai_client = OpenAI(api_key=api_key)
         
-        # Database config
-        supabase_url = os.getenv('SUPABASE_URL')
+        # Database config - support des deux formats de variables
+        supabase_url = os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')
         if not supabase_url:
-            logger.error("❌ SUPABASE_URL non définie!")
+            logger.error("❌ SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_URL non définie!")
+            sys.exit(1)
+            
+        # Support des deux formats pour le mot de passe DB
+        db_password = os.getenv('SUPABASE_DB_PASSWORD') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        if not db_password:
+            logger.error("❌ SUPABASE_DB_PASSWORD ou SUPABASE_SERVICE_ROLE_KEY non définie!")
             sys.exit(1)
             
         project_id = supabase_url.replace('https://', '').split('.')[0]
@@ -58,7 +64,7 @@ class EmbeddingUpdater:
             'host': f"{project_id}.pooler.supabase.com",
             'database': 'postgres',
             'user': f"postgres.{project_id}",
-            'password': os.getenv('SUPABASE_DB_PASSWORD'),
+            'password': db_password,
             'port': 6543
         }
         

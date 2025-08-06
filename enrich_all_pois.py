@@ -716,35 +716,49 @@ def main():
     args = parser.parse_args()
     
     # Vérifier les variables d'environnement
-    required_env = [
-        'FOURSQUARE_API_KEY',
-        'SUPABASE_URL',
-        'SUPABASE_ANON_KEY',
-        'SUPABASE_DB_PASSWORD'
-    ]
+    # Support des deux formats de noms (avec ou sans NEXT_PUBLIC_)
+    required_env = []
     
-    missing = [var for var in required_env if not os.getenv(var)]
-    if missing:
-        logger.error(f"❌ Variables d'environnement manquantes: {', '.join(missing)}")
+    # Foursquare API Key
+    if not os.getenv('FOURSQUARE_API_KEY'):
+        required_env.append('FOURSQUARE_API_KEY')
+    
+    # Supabase URL - essayer les deux formats
+    if not (os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')):
+        required_env.append('SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL')
+    
+    # Supabase Anon Key - essayer les deux formats
+    if not (os.getenv('SUPABASE_ANON_KEY') or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')):
+        required_env.append('SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    
+    # Supabase DB Password - essayer les deux formats
+    if not (os.getenv('SUPABASE_DB_PASSWORD') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')):
+        required_env.append('SUPABASE_DB_PASSWORD or SUPABASE_SERVICE_ROLE_KEY')
+    
+    if required_env:
+        logger.error(f"❌ Variables d'environnement manquantes: {', '.join(required_env)}")
         logger.info("\n📝 Configuration requise dans .env:")
         logger.info("FOURSQUARE_API_KEY=your_key  # Depuis https://foursquare.com/developers/")
-        logger.info("SUPABASE_URL=https://xxx.supabase.co")
-        logger.info("SUPABASE_ANON_KEY=your_anon_key")
-        logger.info("SUPABASE_DB_PASSWORD=your_db_password")
+        logger.info("NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co")
+        logger.info("NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key")
+        logger.info("SUPABASE_SERVICE_ROLE_KEY=your_service_role_key")
         sys.exit(1)
         
-    # Configuration
-    supabase_url = os.getenv('SUPABASE_URL')
+    # Configuration - support des deux formats de variables
+    supabase_url = os.getenv('SUPABASE_URL') or os.getenv('NEXT_PUBLIC_SUPABASE_URL')
+    supabase_anon_key = os.getenv('SUPABASE_ANON_KEY') or os.getenv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+    supabase_db_password = os.getenv('SUPABASE_DB_PASSWORD') or os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    
     project_id = supabase_url.replace('https://', '').split('.')[0]
     
     config = EnrichmentConfig(
         foursquare_api_key=os.getenv('FOURSQUARE_API_KEY'),
         supabase_url=supabase_url,
-        supabase_anon_key=os.getenv('SUPABASE_ANON_KEY'),
-        supabase_db_password=os.getenv('SUPABASE_DB_PASSWORD'),
+        supabase_anon_key=supabase_anon_key,
+        supabase_db_password=supabase_db_password,
         db_host=f"{project_id}.pooler.supabase.com",
         db_user=f"postgres.{project_id}",
-        db_password=os.getenv('SUPABASE_DB_PASSWORD')
+        db_password=supabase_db_password
     )
     
     # Créer l'enrichisseur
