@@ -26,6 +26,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 from supabase import create_client, Client
 
+# Créer le dossier logs si nécessaire
+os.makedirs('logs', exist_ok=True)
+
 # Configuration du logging
 logging.basicConfig(
     level=logging.INFO,

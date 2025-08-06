@@ -15,6 +15,9 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from openai import OpenAI
 
+# Créer le dossier logs si nécessaire
+os.makedirs('logs', exist_ok=True)
+
 # Configuration du logging
 logging.basicConfig(
     level=logging.INFO,
