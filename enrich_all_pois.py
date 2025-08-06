@@ -41,7 +41,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Charger les variables d'environnement
-load_dotenv()
+# Essayer d'abord .env.local, sinon .env
+if os.path.exists('.env.local'):
+    load_dotenv('.env.local')
+else:
+    load_dotenv()
 
 @dataclass
 class EnrichmentConfig:
