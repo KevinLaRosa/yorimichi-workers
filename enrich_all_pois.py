@@ -592,6 +592,18 @@ class CompleteEnricher:
             self.stats['total'] = len(pois)
             logger.info(f"📊 {self.stats['total']} POIs à traiter")
             
+            # Afficher plus de détails sur ce qui va être fait
+            if self.stats['total'] > 0:
+                sample = pois[0]
+                has_coords = sum(1 for p in pois if p.get('latitude') and p['latitude'] != 0)
+                has_fsq = sum(1 for p in pois if p.get('fsq_id'))
+                
+                logger.info(f"📍 POIs avec coordonnées: {has_coords}/{self.stats['total']} ({has_coords*100/self.stats['total']:.1f}%)")
+                logger.info(f"🏷️ POIs déjà enrichis Foursquare: {has_fsq}/{self.stats['total']}")
+                logger.info(f"🔄 POIs à géocoder: {self.stats['total'] - has_coords}")
+                logger.info(f"💰 Coût Foursquare estimé: ${self.stats['total'] * 0.01:.2f} (gratuit dans free tier)")
+                logger.info(f"⏱️ Temps estimé: {self.stats['total'] * 1.2 / 60:.0f} minutes")
+            
             if test_mode:
                 logger.info("🧪 MODE TEST - Pas de mise à jour DB")
                 
@@ -604,12 +616,24 @@ class CompleteEnricher:
                 
                 # Mettre à jour la base
                 if not test_mode:
-                    self.update_database(enriched_poi)
+                    success = self.update_database(enriched_poi)
+                    if not success:
+                        logger.warning(f"⚠️ Échec mise à jour DB pour POI {poi['id']}")
                     
                 # Checkpoint tous les 25 POIs
                 if self.stats['processed'] % 25 == 0:
                     self.save_checkpoint(last_processed_id=str(poi['id']))
                     self.print_stats()
+                    logger.info(f"⏱️ Temps écoulé: {(datetime.now() - self.stats['start_time']).total_seconds():.1f}s")
+                    logger.info(f"⚡ Vitesse: {self.stats['processed']/(datetime.now() - self.stats['start_time']).total_seconds():.2f} POIs/s")
+                    
+                # Log de progression tous les 100 POIs
+                if self.stats['processed'] % 100 == 0:
+                    remaining = self.stats['total'] - self.stats['processed']
+                    eta_seconds = remaining / max(self.stats['processed']/(datetime.now() - self.stats['start_time']).total_seconds(), 0.01)
+                    eta_minutes = int(eta_seconds / 60)
+                    logger.info(f"📈 PROGRESSION: {self.stats['processed']}/{self.stats['total']} ({self.stats['processed']*100/self.stats['total']:.1f}%)")
+                    logger.info(f"⏳ Temps restant estimé: {eta_minutes} minutes")
                     
         except KeyboardInterrupt:
             logger.info("\n⚠️ Interruption utilisateur")
@@ -652,18 +676,25 @@ class CompleteEnricher:
         logger.info("="*60)
         logger.info(f"Total POIs: {self.stats['total']}")
         logger.info(f"Traités: {self.stats['processed']} ({self.stats['processed']*100/max(self.stats['total'],1):.1f}%)")
-        logger.info(f"Géocodés: {self.stats['geocoded']}")
-        logger.info(f"Enrichis: {self.stats['enriched']}")
+        logger.info(f"Géocodés: {self.stats['geocoded']} nouveaux")
+        logger.info(f"Enrichis Foursquare: {self.stats['enriched']}")
         logger.info(f"Images téléchargées: {self.stats['images_downloaded']}")
         logger.info(f"Images uploadées: {self.stats['images_uploaded']}")
-        logger.info(f"Échecs: {self.stats['failed']}")
-        logger.info(f"Appels API: {self.stats['api_calls']}")
-        logger.info(f"Durée: {duration:.1f}s")
-        logger.info(f"Vitesse: {self.stats['processed']/max(duration,1):.1f} POIs/s")
+        logger.info(f"Échecs matching: {self.stats['failed']}")
+        logger.info(f"Skippés: {self.stats.get('skipped', 0)}")
+        logger.info("---")
+        logger.info(f"Appels API Foursquare: {self.stats['api_calls']}")
+        logger.info(f"Durée totale: {duration:.1f}s ({duration/60:.1f} min)")
+        logger.info(f"Vitesse moyenne: {self.stats['processed']/max(duration,1):.2f} POIs/s")
+        
+        # Taux de succès
+        if self.stats['processed'] > 0:
+            success_rate = (self.stats['enriched'] / self.stats['processed']) * 100
+            logger.info(f"Taux de succès: {success_rate:.1f}%")
         
         # Estimation coût Foursquare
         cost = self.stats['api_calls'] * 0.005  # $0.005 par appel en moyenne
-        logger.info(f"Coût estimé Foursquare: ${cost:.2f}")
+        logger.info(f"Coût estimé Foursquare: ${cost:.2f} (FREE TIER: $200/mois)")
         logger.info("="*60)
 
 
