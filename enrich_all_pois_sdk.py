@@ -56,8 +56,8 @@ class EnrichmentConfig:
     search_radius: int = 1000  # 1km radius
     search_limit: int = 20  # Number of results to get from Foursquare
     image_bucket: str = "place-images"
-    max_images_per_poi: int = 5
-    jpeg_quality: int = 85
+    max_images_per_poi: int = 3  # Réduit de 5 à 3 pour rester dans le plan gratuit
+    jpeg_quality: int = 75  # Réduit de 85 à 75 pour économiser l'espace
 
 
 class CompleteEnricher:
@@ -66,7 +66,7 @@ class CompleteEnricher:
     IMAGE_SIZES = {
         'thumb': (150, 150),
         'card': (400, 300),
-        'full': (1200, 900)
+        # 'full': (1200, 900)  # Désactivé pour économiser l'espace (plan gratuit)
     }
     
     def __init__(self, config: EnrichmentConfig):
