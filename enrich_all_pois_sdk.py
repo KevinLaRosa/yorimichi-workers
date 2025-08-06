@@ -264,7 +264,7 @@ Réponse (index uniquement):"""
             params = {'limit': self.config.max_images_per_poi}
             
             response = self.foursquare_session.get(url, params=params, timeout=10)
-            self.stats['api_calls'] += 1
+            self.stats['api_calls_foursquare'] += 1
             
             if response.status_code == 200:
                 photos = response.json()
