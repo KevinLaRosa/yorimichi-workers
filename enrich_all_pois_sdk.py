@@ -19,6 +19,7 @@ import requests
 from PIL import Image
 from dotenv import load_dotenv
 from supabase import create_client, Client
+from openai import OpenAI
 
 # Créer le dossier logs si nécessaire
 os.makedirs('logs', exist_ok=True)
@@ -47,10 +48,13 @@ class EnrichmentConfig:
     foursquare_api_key: str
     supabase_url: str
     supabase_key: str
+    openai_api_key: str = None  # Optional, if provided will use GPT for better matching
     
     # Optional fields (with defaults)
     foursquare_base_url: str = "https://api.foursquare.com/v3"
     foursquare_rate_limit: int = 50  # req/sec
+    search_radius: int = 1000  # 1km radius
+    search_limit: int = 20  # Number of results to get from Foursquare
     image_bucket: str = "place-images"
     max_images_per_poi: int = 5
     jpeg_quality: int = 85
@@ -73,11 +77,13 @@ class CompleteEnricher:
             'processed': 0,
             'geocoded': 0,
             'enriched': 0,
+            'no_match': 0,
             'images_downloaded': 0,
             'images_uploaded': 0,
             'failed': 0,
             'skipped': 0,
-            'api_calls': 0,
+            'api_calls_foursquare': 0,
+            'api_calls_openai': 0,
             'start_time': datetime.now()
         }
         
@@ -102,6 +108,14 @@ class CompleteEnricher:
         # Session pour télécharger les images
         self.image_session = requests.Session()
         
+        # OpenAI client (si API key fournie)
+        if self.config.openai_api_key:
+            self.openai_client = OpenAI(api_key=self.config.openai_api_key)
+            logger.info("✅ GPT-4o-mini activé pour un meilleur matching")
+        else:
+            self.openai_client = None
+            logger.warning("⚠️ Pas d'API OpenAI - matching basique (premier résultat)")
+        
     def _ensure_bucket_exists(self):
         """Crée le bucket Supabase Storage si nécessaire"""
         try:
@@ -120,44 +134,128 @@ class CompleteEnricher:
             logger.warning(f"⚠️ Erreur vérification bucket: {e}")
             # Continuer quand même
             
-    def search_foursquare(self, name: str, address: Optional[str] = None,
-                         lat: Optional[float] = None, lon: Optional[float] = None) -> Optional[Dict]:
-        """Recherche un lieu sur Foursquare"""
+    def search_foursquare_places(self, name: str, address: Optional[str] = None,
+                                lat: Optional[float] = None, lon: Optional[float] = None) -> List[Dict]:
+        """Recherche des lieux sur Foursquare avec paramètres améliorés"""
         
         params = {
-            'limit': 5,
-            'fields': 'fsq_id,name,location,categories,rating,price,photos,hours,website,tel,verified,stats,tips,tastes,features'
+            'query': name,
+            'limit': self.config.search_limit,  # 20 candidats
+            'fields': 'fsq_id,name,location,categories,rating,price,photos,hours,website,tel,verified,distance,stats,tips,tastes,features'
         }
         
-        # Stratégie de recherche
+        # Stratégie de recherche améliorée
         if lat and lon and lat != 0 and lon != 0:
             params['ll'] = f"{lat},{lon}"
-            params['radius'] = 500
-            params['query'] = name
+            params['radius'] = self.config.search_radius  # 1000m
         elif address:
             params['near'] = f"{address}, Tokyo, Japan"
-            params['query'] = name
         else:
             params['near'] = "Tokyo, Japan"
-            params['query'] = name
             
         try:
             url = f"{self.config.foursquare_base_url}/places/search"
             response = self.foursquare_session.get(url, params=params, timeout=10)
-            self.stats['api_calls'] += 1
+            self.stats['api_calls_foursquare'] += 1
             
             if response.status_code == 200:
                 data = response.json()
-                results = data.get('results', [])
-                if results:
-                    return results[0]  # Meilleur match
+                return data.get('results', [])
             else:
                 logger.error(f"Foursquare error {response.status_code}")
                 
         except Exception as e:
             logger.error(f"Erreur recherche Foursquare: {e}")
             
-        return None
+        return []
+    
+    def select_best_match_with_gpt(self, poi_name: str, poi_address: Optional[str],
+                                   candidates: List[Dict]) -> Optional[Dict]:
+        """Utilise GPT-4o-mini pour sélectionner le meilleur match"""
+        
+        if not self.openai_client:
+            # Pas de GPT, retourner le premier candidat
+            return candidates[0] if candidates else None
+        
+        if not candidates:
+            return None
+            
+        # Si un seul candidat, le retourner
+        if len(candidates) == 1:
+            return candidates[0]
+            
+        try:
+            # Préparer le contexte pour GPT
+            candidates_info = []
+            for i, candidate in enumerate(candidates):
+                location = candidate.get('location', {})
+                categories = ', '.join([cat['name'] for cat in candidate.get('categories', [])])
+                distance = candidate.get('distance', 'N/A')
+                
+                candidate_info = {
+                    'index': i,
+                    'name': candidate.get('name'),
+                    'address': location.get('formatted_address', location.get('address', 'N/A')),
+                    'categories': categories or 'N/A',
+                    'distance': f"{distance}m" if distance != 'N/A' else 'N/A',
+                    'verified': candidate.get('verified', False)
+                }
+                candidates_info.append(candidate_info)
+                
+            # Créer le prompt pour GPT
+            prompt = f"""Tu es un assistant spécialisé dans le matching de lieux à Tokyo.
+            
+POI à matcher:
+- Nom: {poi_name}
+- Adresse: {poi_address or 'Non spécifiée'}
+
+Candidats Foursquare:
+{json.dumps(candidates_info, indent=2, ensure_ascii=False)}
+
+Sélectionne le candidat qui correspond LE MIEUX au POI. Priorise:
+1. La correspondance exacte ou très proche du nom
+2. La proximité géographique (distance)
+3. La catégorie appropriée
+4. Le statut vérifié
+
+Réponds UNIQUEMENT avec l'index du meilleur candidat (0 à {len(candidates)-1}).
+Si aucun candidat ne correspond vraiment, réponds -1.
+
+Réponse (index uniquement):"""
+
+            # Appeler GPT-4o-mini
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "Tu es un expert en géolocalisation et matching de lieux à Tokyo."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,  # Basse température pour des réponses cohérentes
+                max_tokens=10
+            )
+            self.stats['api_calls_openai'] += 1
+            
+            # Parser la réponse
+            answer = response.choices[0].message.content.strip()
+            
+            try:
+                index = int(answer)
+                if -1 <= index < len(candidates):
+                    if index == -1:
+                        logger.info(f"  ❌ GPT: Aucun match satisfaisant")
+                        return None
+                    else:
+                        selected = candidates[index]
+                        logger.info(f"  ✅ GPT a sélectionné: {selected.get('name')} (index {index})")
+                        return selected
+            except ValueError:
+                logger.error(f"  ❌ GPT réponse invalide: {answer}")
+                
+        except Exception as e:
+            logger.error(f"Erreur GPT: {e}")
+            
+        # En cas d'erreur, retourner le premier candidat
+        return candidates[0] if candidates else None
         
     def get_foursquare_photos(self, fsq_id: str) -> List[str]:
         """Récupère les URLs des photos depuis Foursquare"""
@@ -248,7 +346,7 @@ class CompleteEnricher:
         return processed_urls
         
     def enrich_poi(self, poi: Dict) -> Dict:
-        """Enrichit complètement un POI"""
+        """Enrichit complètement un POI avec GPT matching si disponible"""
         logger.info(f"\n{'='*60}")
         logger.info(f"🔍 [{self.stats['processed']+1}/{self.stats['total']}] {poi['name']}")
         
@@ -256,11 +354,32 @@ class CompleteEnricher:
         
         # 1. FOURSQUARE - Recherche et enrichissement
         logger.info("  📍 Recherche Foursquare...")
-        fsq_place = self.search_foursquare(
+        candidates = self.search_foursquare_places(
             name=poi['name'],
             address=poi.get('address'),
             lat=poi.get('latitude'),
             lon=poi.get('longitude')
+        )
+        
+        if not candidates:
+            logger.warning(f"  ❌ Aucun candidat Foursquare trouvé")
+            self.stats['no_match'] += 1
+            # Marquer comme no_match
+            enriched['enrichment_status'] = 'no_match'
+            enriched['enrichment_error'] = 'Aucun candidat Foursquare trouvé'
+            enriched['enrichment_attempts'] = (poi.get('enrichment_attempts', 0) or 0) + 1
+            enriched['last_enrichment_attempt'] = datetime.now().isoformat()
+            return enriched
+        
+        logger.info(f"  📊 {len(candidates)} candidats trouvés")
+        
+        # Sélectionner le meilleur match (avec GPT si disponible)
+        if self.openai_client:
+            logger.info("  🤖 Analyse avec GPT-4o-mini...")
+        fsq_place = self.select_best_match_with_gpt(
+            poi_name=poi['name'],
+            poi_address=poi.get('address'),
+            candidates=candidates
         )
         
         if fsq_place:
@@ -320,9 +439,13 @@ class CompleteEnricher:
                 enriched['amenities'] = list(features.keys())
                 enriched['features'] = features
                 
-            # Timestamps
+            # Timestamps et statut
             enriched['fsq_enriched_at'] = datetime.now().isoformat()
             enriched['updated_at'] = datetime.now().isoformat()
+            enriched['enrichment_status'] = 'enriched'
+            enriched['enrichment_error'] = None
+            enriched['enrichment_attempts'] = (poi.get('enrichment_attempts', 0) or 0) + 1
+            enriched['last_enrichment_attempt'] = datetime.now().isoformat()
                 
             self.stats['enriched'] += 1
             
@@ -347,8 +470,13 @@ class CompleteEnricher:
                     enriched['photos_processed_at'] = datetime.now().isoformat()
                     
         else:
-            logger.warning(f"  ❌ Aucun match Foursquare")
-            self.stats['failed'] += 1
+            logger.warning(f"  ❌ Aucun match Foursquare acceptable")
+            self.stats['no_match'] += 1
+            # GPT n'a trouvé aucun bon match
+            enriched['enrichment_status'] = 'no_match'
+            enriched['enrichment_error'] = 'GPT: Aucun match satisfaisant'
+            enriched['enrichment_attempts'] = (poi.get('enrichment_attempts', 0) or 0) + 1
+            enriched['last_enrichment_attempt'] = datetime.now().isoformat()
             
         # Rate limiting
         time.sleep(1 / self.config.foursquare_rate_limit)
@@ -369,7 +497,8 @@ class CompleteEnricher:
             
             # Filtres
             if not force_update:
-                query = query.is_('fsq_id', 'null')
+                # Priorité aux POIs jamais traités (pending)
+                query = query.eq('enrichment_status', 'pending')
             
             if only_missing_coords:
                 query = query.or_('latitude.is.null,latitude.eq.0')
@@ -463,12 +592,14 @@ class CompleteEnricher:
         logger.info(f"Traités: {self.stats['processed']} ({self.stats['processed']*100/max(self.stats['total'],1):.1f}%)")
         logger.info(f"Géocodés: {self.stats['geocoded']} nouveaux")
         logger.info(f"Enrichis Foursquare: {self.stats['enriched']}")
+        logger.info(f"Aucun match trouvé: {self.stats['no_match']}")
         logger.info(f"Images téléchargées: {self.stats['images_downloaded']}")
         logger.info(f"Images uploadées: {self.stats['images_uploaded']}")
-        logger.info(f"Échecs matching: {self.stats['failed']}")
+        logger.info(f"Échecs techniques: {self.stats['failed']}")
         logger.info(f"Skippés: {self.stats.get('skipped', 0)}")
         logger.info("---")
-        logger.info(f"Appels API Foursquare: {self.stats['api_calls']}")
+        logger.info(f"Appels API Foursquare: {self.stats['api_calls_foursquare']}")
+        logger.info(f"Appels API OpenAI: {self.stats['api_calls_openai']}")
         logger.info(f"Durée totale: {duration:.1f}s ({duration/60:.1f} min)")
         logger.info(f"Vitesse moyenne: {self.stats['processed']/max(duration,1):.2f} POIs/s")
         
@@ -520,12 +651,21 @@ def main():
         logger.info("NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co")
         logger.info("SUPABASE_SERVICE_ROLE_KEY=your_service_role_key")
         sys.exit(1)
+    
+    # OpenAI API Key (optionnel mais recommandé)
+    openai_key = os.getenv('OPENAI_API_KEY')
+    if not openai_key:
+        logger.warning("⚠️ OPENAI_API_KEY non trouvée - matching basique sans GPT")
+        logger.info("   Pour un meilleur matching, ajoutez OPENAI_API_KEY dans .env.local")
+    else:
+        logger.info("✅ OpenAI API configurée - matching intelligent avec GPT-4o-mini")
         
     # Configuration
     config = EnrichmentConfig(
         foursquare_api_key=os.getenv('FOURSQUARE_API_KEY'),
         supabase_url=supabase_url,
-        supabase_key=supabase_key
+        supabase_key=supabase_key,
+        openai_api_key=openai_key  # Peut être None, c'est OK
     )
     
     # Créer l'enrichisseur
