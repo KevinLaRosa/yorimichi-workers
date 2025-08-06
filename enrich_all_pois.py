@@ -46,26 +46,22 @@ load_dotenv()
 @dataclass
 class EnrichmentConfig:
     """Configuration pour l'enrichissement complet"""
-    # Foursquare
+    # Required fields (no defaults)
     foursquare_api_key: str
-    foursquare_base_url: str = "https://api.foursquare.com/v3"
-    foursquare_rate_limit: int = 50  # req/sec
-    
-    # Supabase
     supabase_url: str
     supabase_anon_key: str
     supabase_db_password: str
+    db_host: str
+    db_user: str
+    db_password: str
     
-    # Images
+    # Optional fields (with defaults)
+    foursquare_base_url: str = "https://api.foursquare.com/v3"
+    foursquare_rate_limit: int = 50  # req/sec
     image_bucket: str = "place-images"
     max_images_per_poi: int = 5
     jpeg_quality: int = 85
-    
-    # Database
-    db_host: str
     db_name: str = "postgres"
-    db_user: str
-    db_password: str
     db_port: int = 6543
 
 
