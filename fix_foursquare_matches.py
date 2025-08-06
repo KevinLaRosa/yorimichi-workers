@@ -378,7 +378,8 @@ Réponse (index uniquement):"""
         if not candidates:
             logger.warning(f"  ❌ Aucun candidat trouvé")
             self.stats['failed'] += 1
-            return None
+            # Marquer comme no_match
+            return {'enrichment_status': 'no_match', 'enrichment_error': 'Aucun candidat Foursquare trouvé'}
             
         logger.info(f"  📊 {len(candidates)} candidats trouvés")
         
@@ -392,14 +393,16 @@ Réponse (index uniquement):"""
         
         if not best_match:
             self.stats['failed'] += 1
-            return None
+            # GPT n'a trouvé aucun bon match
+            return {'enrichment_status': 'no_match', 'enrichment_error': 'GPT: Aucun match satisfaisant'}
             
         # Vérifier si c'est un nouveau match
         new_fsq_id = best_match.get('fsq_id')
         if new_fsq_id == poi.get('fsq_id'):
             logger.info(f"  ✅ Match correct confirmé")
             self.stats['unchanged'] += 1
-            return None
+            # Confirmer le statut enriched
+            return {'enrichment_status': 'enriched', 'enrichment_error': None}
             
         # Préparer les données mises à jour
         logger.info(f"  🔄 Nouveau match: {best_match.get('name')} ({new_fsq_id})")
@@ -409,6 +412,8 @@ Réponse (index uniquement):"""
             'rating': best_match.get('rating'),
             'price_tier': best_match.get('price'),
             'verified': best_match.get('verified', False),
+            'enrichment_status': 'enriched',
+            'enrichment_error': None,
             'updated_at': datetime.now().isoformat()
         }
         
@@ -472,6 +477,10 @@ Réponse (index uniquement):"""
                 # Mettre à jour la base si nécessaire
                 if updated_data and not test_mode:
                     try:
+                        # Ajouter le compteur de tentatives
+                        updated_data['enrichment_attempts'] = (poi.get('enrichment_attempts', 0) or 0) + 1
+                        updated_data['last_enrichment_attempt'] = datetime.now().isoformat()
+                        
                         self.supabase.table('locations') \
                             .update(updated_data) \
                             .eq('id', poi['id']) \
@@ -479,6 +488,19 @@ Réponse (index uniquement):"""
                         logger.info(f"  ✅ Base de données mise à jour")
                     except Exception as e:
                         logger.error(f"  ❌ Erreur mise à jour DB: {e}")
+                        # Marquer comme failed dans la DB
+                        try:
+                            self.supabase.table('locations') \
+                                .update({
+                                    'enrichment_status': 'failed',
+                                    'enrichment_error': str(e),
+                                    'enrichment_attempts': (poi.get('enrichment_attempts', 0) or 0) + 1,
+                                    'last_enrichment_attempt': datetime.now().isoformat()
+                                }) \
+                                .eq('id', poi['id']) \
+                                .execute()
+                        except:
+                            pass
                         
                 # Rate limiting
                 time.sleep(1 / self.config.foursquare_rate_limit)
