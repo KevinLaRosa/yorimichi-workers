@@ -51,7 +51,7 @@ class FixerConfig:
     
     foursquare_base_url: str = "https://api.foursquare.com/v3"
     search_radius: int = 1000  # 1km radius
-    search_limit: int = 10  # Number of results to get from Foursquare
+    search_limit: int = 20  # Number of results to get from Foursquare (increased for dense Tokyo areas)
     foursquare_rate_limit: int = 50  # req/sec
     image_bucket: str = "place-images"
     max_images_per_poi: int = 5
