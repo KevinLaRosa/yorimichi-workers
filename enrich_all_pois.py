@@ -66,7 +66,7 @@ class EnrichmentConfig:
     max_images_per_poi: int = 5
     jpeg_quality: int = 85
     db_name: str = "postgres"
-    db_port: int = 5432  # Port standard PostgreSQL
+    db_port: int = 6543  # Port pour le pooler Supabase
 
 
 class CompleteEnricher:
@@ -179,12 +179,15 @@ class CompleteEnricher:
             
     def connect_db(self):
         """Connexion à la base de données Supabase"""
+        # Forcer IPv4 et ajouter sslmode
         return psycopg2.connect(
             host=self.config.db_host,
             database=self.config.db_name,
             user=self.config.db_user,
             password=self.config.db_password,
-            port=self.config.db_port
+            port=self.config.db_port,
+            sslmode='require',  # Supabase requiert SSL
+            connect_timeout=10
         )
         
     def search_foursquare(self, name: str, address: Optional[str] = None,
@@ -757,17 +760,17 @@ def main():
     
     project_id = supabase_url.replace('https://', '').split('.')[0]
     
-    # Pour Supabase, utiliser db.supabase.co au lieu de pooler.supabase.com
-    # Le port 5432 est pour la connexion directe
+    # Pour Supabase, on peut utiliser soit db. pour la connexion directe, soit pooler. pour le pooling
+    # Essayons avec pooler qui est plus stable
     config = EnrichmentConfig(
         foursquare_api_key=os.getenv('FOURSQUARE_API_KEY'),
         supabase_url=supabase_url,
         supabase_anon_key=supabase_anon_key,
         supabase_db_password=supabase_db_password,
-        db_host=f"db.{project_id}.supabase.co",  # Utiliser db. au lieu de pooler.
-        db_user="postgres",  # Juste 'postgres', pas avec le project_id
+        db_host=f"aws-0-ap-northeast-1.pooler.supabase.com",  # Host pooler pour la région Tokyo
+        db_user=f"postgres.{project_id}",  # Format user pour pooler
         db_password=supabase_db_password,
-        db_port=5432  # Port standard PostgreSQL pour connexion directe
+        db_port=6543  # Port pour le pooler
     )
     
     # Créer l'enrichisseur

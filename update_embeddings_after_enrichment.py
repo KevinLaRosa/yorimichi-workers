@@ -60,13 +60,14 @@ class EmbeddingUpdater:
             sys.exit(1)
             
         project_id = supabase_url.replace('https://', '').split('.')[0]
-        # Pour Supabase, utiliser db.supabase.co et port 5432
+        # Utiliser le pooler Supabase pour la stabilité
         self.db_config = {
-            'host': f"db.{project_id}.supabase.co",
+            'host': 'aws-0-ap-northeast-1.pooler.supabase.com',  # Host pooler pour Tokyo
             'database': 'postgres',
-            'user': 'postgres',  # Juste 'postgres'
+            'user': f'postgres.{project_id}',  # Format user pour pooler
             'password': db_password,
-            'port': 5432  # Port standard PostgreSQL
+            'port': 6543,  # Port pour le pooler
+            'sslmode': 'require'  # SSL requis
         }
         
         self.stats = {
