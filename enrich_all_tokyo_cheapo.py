@@ -559,7 +559,16 @@ class CompleteEnricher:
                 logger.warning("   python migrate_add_foursquare_columns.py")
                 return
             
-            query = "SELECT * FROM locations WHERE source_url LIKE '%tokyocheapo%'"
+            # IMPORTANT: Ne PAS inclure embedding pour éviter de le régénérer (coûteux!)
+            query = """
+                SELECT id, name, address, latitude, longitude, description, 
+                       phone, website, category, source_url, metadata, features,
+                       opening_hours, fsq_id, rating, price_tier, verified,
+                       photos, hours, stats, amenities, fsq_categories,
+                       fsq_enriched_at, photos_processed_at
+                FROM locations 
+                WHERE source_url LIKE '%tokyocheapo%'
+            """
             
             # Éviter les doublons - skip les POIs déjà enrichis
             if not force_update:
