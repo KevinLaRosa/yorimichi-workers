@@ -492,24 +492,47 @@ Réponse (index uniquement):"""
         logger.info("="*60)
         
         try:
-            # Construire la requête
-            query = self.supabase.table('locations').select('*')
+            # Construire la requête avec pagination pour dépasser la limite de 1000
+            all_pois = []
+            offset = 0
+            batch_size = 1000  # Limite Supabase par défaut
             
-            # Filtres
-            if not force_update:
-                # Priorité aux POIs jamais traités (pending)
-                query = query.eq('enrichment_status', 'pending')
+            while True:
+                query = self.supabase.table('locations').select('*')
+                
+                # Filtres
+                if not force_update:
+                    # Priorité aux POIs jamais traités (pending)
+                    query = query.eq('enrichment_status', 'pending')
+                
+                if only_missing_coords:
+                    query = query.or_('latitude.is.null,latitude.eq.0')
+                
+                # Pagination
+                query = query.range(offset, offset + batch_size - 1)
+                
+                # Exécuter la requête
+                result = query.execute()
+                batch = result.data
+                
+                if not batch:
+                    break  # Plus de données
+                    
+                all_pois.extend(batch)
+                
+                # Si on a une limite spécifique et qu'on l'a atteinte
+                if limit and len(all_pois) >= limit:
+                    all_pois = all_pois[:limit]
+                    break
+                    
+                # Si on a moins que batch_size, c'est la dernière page
+                if len(batch) < batch_size:
+                    break
+                    
+                offset += batch_size
+                logger.info(f"📄 Chargé {len(all_pois)} POIs...")
             
-            if only_missing_coords:
-                query = query.or_('latitude.is.null,latitude.eq.0')
-                
-            # Limite
-            if limit:
-                query = query.limit(limit)
-                
-            # Exécuter la requête
-            result = query.execute()
-            pois = result.data
+            pois = all_pois
             
             self.stats['total'] = len(pois)
             logger.info(f"📊 {self.stats['total']} POIs à traiter")
