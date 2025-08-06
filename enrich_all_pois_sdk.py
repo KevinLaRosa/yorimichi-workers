@@ -572,8 +572,12 @@ Réponse (index uniquement):"""
         
     def save_checkpoint(self, last_processed_id=None):
         """Sauvegarde un checkpoint pour reprise"""
+        # Convertir start_time en string pour JSON
+        stats_copy = self.stats.copy()
+        stats_copy['start_time'] = stats_copy['start_time'].isoformat()
+        
         checkpoint = {
-            'stats': self.stats,
+            'stats': stats_copy,
             'timestamp': datetime.now().isoformat(),
             'last_processed_id': last_processed_id
         }
@@ -677,7 +681,10 @@ def main():
         try:
             with open('enrichment_checkpoint.json', 'r') as f:
                 checkpoint = json.load(f)
-                enricher.stats.update(checkpoint['stats'])
+                # Reconvertir start_time en datetime
+                stats = checkpoint['stats']
+                stats['start_time'] = datetime.fromisoformat(stats['start_time'])
+                enricher.stats.update(stats)
                 resume_from_id = checkpoint.get('last_processed_id')
                 logger.info(f"♻️ Reprise depuis checkpoint:")
                 logger.info(f"   POIs déjà traités: {checkpoint['stats']['processed']}")
