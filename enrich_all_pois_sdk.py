@@ -290,12 +290,14 @@ class CompleteEnricher:
                 
             # Adresse formatée
             if location:
-                enriched['formatted_address'] = location.get('formatted_address')
+                # formatted_address n'existe pas dans la base de données
+                # enriched['formatted_address'] = location.get('formatted_address')
                 if location.get('formatted_address'):
                     enriched['address'] = location.get('formatted_address')
                 # cross_street n'existe pas dans la base de données
                 # enriched['cross_street'] = location.get('cross_street')
-                enriched['postal_code'] = location.get('postcode')
+                # postal_code n'existe pas dans la base de données
+                # enriched['postal_code'] = location.get('postcode')
                 
             # Contact
             enriched['phone'] = fsq_place.get('tel')
