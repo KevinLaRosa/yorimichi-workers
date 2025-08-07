@@ -155,7 +155,7 @@ class FoursquareUpdater:
         
         return updated
         
-    def process_all(self, limit: Optional[int] = None, test_mode: bool = False, force_all: bool = False):
+    def process_all(self, limit: Optional[int] = None, test_mode: bool = False, only_missing: bool = False):
         """Traite tous les POIs avec fsq_id"""
         
         logger.info("\n" + "="*60)
@@ -175,8 +175,8 @@ class FoursquareUpdater:
                 query = self.supabase.table('locations').select('*') \
                     .not_.is_('fsq_id', 'null')
                 
-                # Filtrer ceux qui ont besoin d'update (sauf si force_all)
-                if not force_all:
+                # Filtrer seulement si --only-missing est spécifié
+                if only_missing:
                     # SEULEMENT ceux où permanently_closed est null (nouveau champ jamais rempli)
                     query = query.is_('permanently_closed', 'null')
                 
@@ -204,10 +204,7 @@ class FoursquareUpdater:
                 all_pois = all_pois[:limit]
                 
             self.stats['total'] = len(all_pois)
-            if force_all:
-                logger.info(f"📊 {self.stats['total']} POIs avec FSQ ID à mettre à jour (TOUS)")
-            else:
-                logger.info(f"📊 {self.stats['total']} POIs avec champs manquants à mettre à jour")
+            logger.info(f"📊 {self.stats['total']} POIs avec FSQ ID à mettre à jour")
             
             if test_mode:
                 logger.info("🧪 MODE TEST - Pas de mise à jour DB")
@@ -276,8 +273,8 @@ def main():
     parser = argparse.ArgumentParser(description='Mise à jour des POIs avec Foursquare existant')
     parser.add_argument('--limit', type=int, help='Nombre max de POIs à traiter')
     parser.add_argument('--test', action='store_true', help='Mode test (pas de mise à jour DB)')
-    parser.add_argument('--force-all', action='store_true', 
-                       help='Forcer la mise à jour de TOUS les POIs (pas seulement ceux avec champs manquants)')
+    parser.add_argument('--only-missing', action='store_true',
+                       help='Traiter seulement les POIs avec permanently_closed NULL')
     
     args = parser.parse_args()
     
@@ -306,13 +303,13 @@ def main():
     logger.info("Configuration:")
     logger.info(f"  Limite: {args.limit or 'Aucune'}")
     logger.info(f"  Mode test: {args.test}")
-    logger.info(f"  Forcer tous: {args.force_all}")
+    logger.info(f"  Only missing: {args.only_missing}")
     logger.info("")
     
     updater.process_all(
         limit=args.limit,
         test_mode=args.test,
-        force_all=args.force_all
+        only_missing=args.only_missing
     )
 
 
