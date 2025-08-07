@@ -141,7 +141,7 @@ class CompleteEnricher:
         params = {
             'query': name,
             'limit': self.config.search_limit,  # 20 candidats
-            'fields': 'fsq_id,name,location,categories,rating,price,photos,hours,website,tel,verified,distance,stats,tips,tastes,features'
+            'fields': 'fsq_id,name,location,categories,rating,price,photos,hours,website,tel,verified,distance,stats,tips,tastes,features,closed_bucket'
         }
         
         # Stratégie de recherche améliorée
@@ -422,11 +422,19 @@ Réponse (index uniquement):"""
             enriched['phone'] = fsq_place.get('tel')
             enriched['website'] = fsq_place.get('website')
             
-            # Horaires
+            # Horaires et statut fermé
             hours = fsq_place.get('hours')
             if hours:
                 enriched['hours'] = hours
                 enriched['open_now'] = hours.get('open_now')
+                
+            # Vérifier si fermé définitivement
+            closed_bucket = fsq_place.get('closed_bucket')
+            if closed_bucket:
+                # closed_bucket peut être "VenueClosed" ou "VenueRelocated"
+                enriched['permanently_closed'] = True
+                enriched['closure_reason'] = closed_bucket
+                logger.warning(f"  ⚠️ POI fermé définitivement: {closed_bucket}")
                 
             # Stats
             stats = fsq_place.get('stats', {})
