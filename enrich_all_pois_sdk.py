@@ -391,13 +391,24 @@ Réponse (index uniquement):"""
         if fsq_place:
             logger.info(f"  ✅ Match trouvé: {fsq_place.get('name')}")
             
-            # Géocodage si nécessaire
+            # TOUJOURS récupérer les coordonnées de Foursquare (plus précises)
             location = fsq_place.get('location', {})
-            if (not poi.get('latitude') or poi.get('latitude') == 0) and location.get('lat'):
+            geocodes = fsq_place.get('geocodes', {})
+            main_geocode = geocodes.get('main', {})
+            
+            # Utiliser geocodes.main (nouveau format) ou location (ancien format)
+            if main_geocode.get('latitude'):
+                enriched['latitude'] = main_geocode['latitude']
+                enriched['longitude'] = main_geocode['longitude']
+                if not poi.get('latitude') or poi.get('latitude') == 0:
+                    self.stats['geocoded'] += 1
+                    logger.info(f"  📍 Géocodé via geocodes: {main_geocode['latitude']}, {main_geocode['longitude']}")
+            elif location.get('lat'):
                 enriched['latitude'] = location['lat']
                 enriched['longitude'] = location['lng']
-                self.stats['geocoded'] += 1
-                logger.info(f"  📍 Géocodé: {location['lat']}, {location['lng']}")
+                if not poi.get('latitude') or poi.get('latitude') == 0:
+                    self.stats['geocoded'] += 1
+                    logger.info(f"  📍 Géocodé via location: {location['lat']}, {location['lng']}")
                 
             # Métadonnées
             enriched['fsq_id'] = fsq_place.get('fsq_id')
