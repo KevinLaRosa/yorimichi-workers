@@ -177,16 +177,8 @@ class FoursquareUpdater:
                 
                 # Filtrer ceux qui ont besoin d'update (sauf si force_all)
                 if not force_all:
-                    # Soit permanently_closed est null (nouveau champ)
-                    # Soit pas de last_foursquare_update (jamais mis à jour)
-                    # Soit des champs importants manquants
-                    query = query.or_(
-                        'permanently_closed.is.null,'
-                        'last_foursquare_update.is.null,'
-                        'hours.is.null,'
-                        'rating.is.null,'
-                        'open_now.is.null'
-                    )
+                    # SEULEMENT ceux où permanently_closed est null (nouveau champ jamais rempli)
+                    query = query.is_('permanently_closed', 'null')
                 
                 query = query.range(offset, offset + batch_size - 1)
                 
