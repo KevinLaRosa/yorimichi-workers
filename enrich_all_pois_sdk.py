@@ -578,6 +578,23 @@ Réponse (index uniquement):"""
                     except Exception as e:
                         logger.error(f"  ❌ Erreur mise à jour DB: {e}")
                         
+                        # Si c'est une erreur de duplicate key, marquer comme duplicate
+                        if 'duplicate key' in str(e):
+                            try:
+                                self.supabase.table('locations') \
+                                    .update({
+                                        'enrichment_status': 'duplicate',
+                                        'enrichment_error': f'Duplicate fsq_id: {str(e)[:200]}',
+                                        'enrichment_attempts': (poi.get('enrichment_attempts', 0) or 0) + 1,
+                                        'last_enrichment_attempt': datetime.now().isoformat()
+                                    }) \
+                                    .eq('id', poi['id']) \
+                                    .execute()
+                                logger.warning(f"  ⚠️ Marqué comme duplicate")
+                                self.stats['failed'] += 1
+                            except:
+                                pass
+                        
                 # Checkpoint tous les 25 POIs
                 if self.stats['processed'] % 25 == 0:
                     self.save_checkpoint(last_processed_id=str(poi['id']))
