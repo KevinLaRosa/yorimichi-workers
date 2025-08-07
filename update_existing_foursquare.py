@@ -72,7 +72,7 @@ class FoursquareUpdater:
         try:
             url = f"https://api.foursquare.com/v3/places/{fsq_id}"
             params = {
-                'fields': 'name,location,categories,rating,price,hours,website,tel,verified,stats,closed_bucket'
+                'fields': 'name,location,geocodes,categories,rating,price,hours,website,tel,verified,stats,closed_bucket'
             }
             
             response = self.foursquare_session.get(url, params=params, timeout=10)
@@ -144,11 +144,25 @@ class FoursquareUpdater:
         if 'verified' in fsq_data:
             updated['verified'] = fsq_data['verified']
             
-        # Adresse mise à jour
-        if 'location' in fsq_data:
-            location = fsq_data['location']
-            if location.get('formatted_address'):
-                updated['address'] = location['formatted_address']
+        # Coordonnées et adresse
+        # TOUJOURS récupérer les coordonnées de Foursquare (plus précises)
+        geocodes = fsq_data.get('geocodes', {})
+        main_geocode = geocodes.get('main', {})
+        location = fsq_data.get('location', {})
+        
+        # Utiliser geocodes.main (nouveau format) ou location (ancien format)
+        if main_geocode.get('latitude'):
+            updated['latitude'] = main_geocode['latitude']
+            updated['longitude'] = main_geocode['longitude']
+            logger.info(f"  📍 Coordonnées (geocodes): {main_geocode['latitude']}, {main_geocode['longitude']}")
+        elif location.get('lat'):
+            updated['latitude'] = location['lat']
+            updated['longitude'] = location['lng']
+            logger.info(f"  📍 Coordonnées (location): {location['lat']}, {location['lng']}")
+            
+        # Adresse
+        if location.get('formatted_address'):
+            updated['address'] = location['formatted_address']
                 
         logger.info(f"  ✅ Données mises à jour")
         self.stats['updated'] += 1
