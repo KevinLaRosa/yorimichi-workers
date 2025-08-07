@@ -319,6 +319,12 @@ Réponse (index uniquement):"""
                 
                 # Upload vers Supabase
                 try:
+                    # D'abord essayer de supprimer si existe
+                    try:
+                        self.supabase.storage.from_(self.config.image_bucket).remove([filename])
+                    except:
+                        pass  # Pas grave si n'existe pas
+                    
                     response = self.supabase.storage.from_(self.config.image_bucket).upload(
                         filename,
                         output.getvalue(),
@@ -333,12 +339,12 @@ Réponse (index uniquement):"""
                     self.stats['images_uploaded'] += 1
                     
                 except Exception as e:
-                    if 'already exists' in str(e):
-                        # Récupérer l'URL existante
+                    # En cas d'erreur, essayer de récupérer l'URL quand même
+                    try:
                         public_url = self.supabase.storage.from_(self.config.image_bucket).get_public_url(filename)
                         processed_urls[size_name] = public_url
-                    else:
-                        logger.error(f"Erreur upload: {e}")
+                    except:
+                        logger.error(f"Erreur upload {size_name}: {e}")
                         
         except Exception as e:
             logger.error(f"Erreur traitement image: {e}")
@@ -430,11 +436,15 @@ Réponse (index uniquement):"""
                 
             # Vérifier si fermé définitivement
             closed_bucket = fsq_place.get('closed_bucket')
-            if closed_bucket:
-                # closed_bucket peut être "VenueClosed" ou "VenueRelocated"
+            # closed_bucket n'existe que si le lieu est vraiment fermé (VenueClosed, VenueRelocated)
+            if closed_bucket and closed_bucket in ['VenueClosed', 'VenueRelocated']:
                 enriched['permanently_closed'] = True
                 enriched['closure_reason'] = closed_bucket
                 logger.warning(f"  ⚠️ POI fermé définitivement: {closed_bucket}")
+            else:
+                # Pas fermé si pas de closed_bucket valide
+                enriched['permanently_closed'] = False
+                enriched['closure_reason'] = None
                 
             # Stats
             stats = fsq_place.get('stats', {})
