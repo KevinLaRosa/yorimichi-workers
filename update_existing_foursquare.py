@@ -119,13 +119,14 @@ class FoursquareUpdater:
             updated['open_now'] = fsq_data['hours'].get('open_now')
             
         # Vérifier si fermé définitivement
-        if 'closed_bucket' in fsq_data:
+        # closed_bucket n'existe que si le lieu est vraiment fermé (VenueClosed, VenueRelocated)
+        if 'closed_bucket' in fsq_data and fsq_data['closed_bucket'] in ['VenueClosed', 'VenueRelocated']:
             updated['permanently_closed'] = True
             updated['closure_reason'] = fsq_data['closed_bucket']
             logger.warning(f"  ⚠️ POI fermé définitivement: {fsq_data['closed_bucket']}")
             self.stats['closed'] += 1
         else:
-            # S'assurer que c'est bien ouvert si pas de closed_bucket
+            # S'assurer que c'est bien ouvert si pas de closed_bucket valide
             updated['permanently_closed'] = False
             updated['closure_reason'] = None
             
@@ -154,7 +155,7 @@ class FoursquareUpdater:
         
         return updated
         
-    def process_all(self, limit: Optional[int] = None, test_mode: bool = False):
+    def process_all(self, limit: Optional[int] = None, test_mode: bool = False, force_all: bool = False):
         """Traite tous les POIs avec fsq_id"""
         
         logger.info("\n" + "="*60)
@@ -162,7 +163,9 @@ class FoursquareUpdater:
         logger.info("="*60)
         
         try:
-            # Récupérer tous les POIs avec fsq_id
+            # Récupérer tous les POIs avec fsq_id qui ont des champs manquants
+            # Priorité : ceux qui n'ont pas permanently_closed (nouveau champ)
+            # ou pas de last_foursquare_update (jamais mis à jour)
             # Pagination pour dépasser 1000
             all_pois = []
             offset = 0
@@ -170,8 +173,22 @@ class FoursquareUpdater:
             
             while True:
                 query = self.supabase.table('locations').select('*') \
-                    .not_.is_('fsq_id', 'null') \
-                    .range(offset, offset + batch_size - 1)
+                    .not_.is_('fsq_id', 'null')
+                
+                # Filtrer ceux qui ont besoin d'update (sauf si force_all)
+                if not force_all:
+                    # Soit permanently_closed est null (nouveau champ)
+                    # Soit pas de last_foursquare_update (jamais mis à jour)
+                    # Soit des champs importants manquants
+                    query = query.or_(
+                        'permanently_closed.is.null,'
+                        'last_foursquare_update.is.null,'
+                        'hours.is.null,'
+                        'rating.is.null,'
+                        'open_now.is.null'
+                    )
+                
+                query = query.range(offset, offset + batch_size - 1)
                 
                 if limit and offset >= limit:
                     break
@@ -195,7 +212,10 @@ class FoursquareUpdater:
                 all_pois = all_pois[:limit]
                 
             self.stats['total'] = len(all_pois)
-            logger.info(f"📊 {self.stats['total']} POIs avec FSQ ID à mettre à jour")
+            if force_all:
+                logger.info(f"📊 {self.stats['total']} POIs avec FSQ ID à mettre à jour (TOUS)")
+            else:
+                logger.info(f"📊 {self.stats['total']} POIs avec champs manquants à mettre à jour")
             
             if test_mode:
                 logger.info("🧪 MODE TEST - Pas de mise à jour DB")
@@ -264,6 +284,8 @@ def main():
     parser = argparse.ArgumentParser(description='Mise à jour des POIs avec Foursquare existant')
     parser.add_argument('--limit', type=int, help='Nombre max de POIs à traiter')
     parser.add_argument('--test', action='store_true', help='Mode test (pas de mise à jour DB)')
+    parser.add_argument('--force-all', action='store_true', 
+                       help='Forcer la mise à jour de TOUS les POIs (pas seulement ceux avec champs manquants)')
     
     args = parser.parse_args()
     
@@ -292,11 +314,13 @@ def main():
     logger.info("Configuration:")
     logger.info(f"  Limite: {args.limit or 'Aucune'}")
     logger.info(f"  Mode test: {args.test}")
+    logger.info(f"  Forcer tous: {args.force_all}")
     logger.info("")
     
     updater.process_all(
         limit=args.limit,
-        test_mode=args.test
+        test_mode=args.test,
+        force_all=args.force_all
     )
 
 
